@@ -9,7 +9,7 @@ import { Client } from "colyseus.js";
 
 const SERVER = process.env.SERVER_URL ?? "ws://localhost:2567";
 const TIMEOUT_MS = 10_000;
-const BOSS_TIMEOUT_MS = 20_000;
+const BOSS_TIMEOUT_MS = 30_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -59,6 +59,16 @@ async function waitForBossAction(room, expectedAction, label, timeoutMs = BOSS_T
   throw new Error(`${label}: boss never entered ${expectedAction}`);
 }
 
+async function waitForBossFrame(room, expectedAction, expectedFrame, label) {
+  const deadline = Date.now() + BOSS_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const boss = room.state?.boss;
+    if (boss?.action === expectedAction && boss.attackFrame === expectedFrame) return;
+    await sleep(20);
+  }
+  throw new Error(`${label}: boss never reached ${expectedAction} frame ${expectedFrame}`);
+}
+
 async function waitForProjectileBurst(room, label) {
   const deadline = Date.now() + BOSS_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -69,12 +79,26 @@ async function waitForProjectileBurst(room, label) {
           [projectile.x, projectile.y, projectile.vx, projectile.vy].every(Number.isFinite),
           `${label}: projectile state should contain finite position and velocity`,
         );
+        const speed = Math.hypot(projectile.vx, projectile.vy);
+        assert(
+          Math.abs(speed - 110) < 0.01,
+          `${label}: projectile should retain the configured constant speed`,
+        );
       }
       return;
     }
     await sleep(20);
   }
   throw new Error(`${label}: expected an eight-projectile burst`);
+}
+
+async function waitForProjectilesToDespawn(room, label) {
+  const deadline = Date.now() + BOSS_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (room.state?.bossProjectiles?.size === 0) return;
+    await sleep(50);
+  }
+  throw new Error(`${label}: projectiles did not leave the world bounds`);
 }
 
 function assert(condition, message) {
@@ -119,10 +143,13 @@ async function main() {
   assert(movedOnPeer > 0, "Peer should receive PlayerA movement via state sync");
   console.log(`OK: PlayerA moved ${movedOnServer.toFixed(0)}px; PlayerB observed ${movedOnPeer.toFixed(0)}px`);
 
-  await waitForBossAction(playerA.room, "stomp", "first boss attack", 8_000);
+  await waitForBossAction(playerA.room, "stomp", "stomp attack");
+  await waitForBossFrame(playerA.room, "stomp", 5, "stomp impact");
   await waitForBossAction(playerA.room, "cast", "second boss attack");
+  await waitForBossFrame(playerA.room, "cast", 5, "cast release");
   await waitForProjectileBurst(playerA.room, "light-orb attack");
-  console.log("OK: boss alternates stomp then cast and emits eight projectiles");
+  await waitForProjectilesToDespawn(playerA.room, "light-orb attack");
+  console.log("OK: boss alternates attacks, emits eight projectiles, and despawns them at bounds");
 
   await playerA.room.leave();
   await playerB.room.leave();

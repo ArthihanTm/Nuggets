@@ -9,15 +9,34 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import { GameRoom } from "./rooms/GameRoom";
 
 const port = Number(process.env.PORT) || 2567;
-const clientDist = path.resolve(__dirname, "../../client/dist");
-const clientIndex = path.join(clientDist, "index.html");
-const hasClientBuild = fs.existsSync(clientIndex);
+const host = process.env.HOST || "0.0.0.0";
+
+function resolveClientDist(): string | null {
+  const candidates = [
+    path.resolve(__dirname, "../public"),
+    path.resolve(__dirname, "../../client/dist"),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, "index.html"))) return dir;
+  }
+  return null;
+}
+
+const clientDist = resolveClientDist();
+const hasClientBuild = clientDist !== null;
+const clientIndex = hasClientBuild
+  ? path.join(clientDist, "index.html")
+  : null;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-if (hasClientBuild) {
+app.get("/health", (_req, res) => {
+  res.status(200).send("ok");
+});
+
+if (hasClientBuild && clientIndex) {
   app.use(express.static(clientDist));
   app.get("/", (_req, res) => {
     res.sendFile(clientIndex);
@@ -25,7 +44,7 @@ if (hasClientBuild) {
 } else {
   app.get("/", (_req, res) => {
     res.send(
-      "Nuggets server is running. Build the client with: cd client && npm run build",
+      "Nuggets server is running. Build the client with: cd server && npm run build",
     );
   });
 }
@@ -38,6 +57,11 @@ const gameServer = new Server({
 
 gameServer.define("game", GameRoom);
 
-gameServer.listen(port).then(() => {
-  console.log(`Colyseus server listening on ws://localhost:${port}`);
+gameServer.listen(port, host).then(() => {
+  console.log(`HTTP + Colyseus listening on ${host}:${port}`);
+  console.log(
+    hasClientBuild
+      ? `Serving client from ${clientDist}`
+      : "Client build not found — run npm run build in server/",
+  );
 });

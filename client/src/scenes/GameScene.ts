@@ -1539,8 +1539,16 @@ export class GameScene extends Phaser.Scene {
           : next === "cast"
             ? entry.castSprite
             : entry.idleSprite;
-    const fallbackSprite = entry.idleSprite ?? entry.walkSprite;
+    const fallbackSprite =
+      entry.idleSprite ?? entry.walkSprite ?? entry.stompSprite ?? entry.castSprite;
     const visibleSprite = desiredSprite ?? fallbackSprite;
+    if (
+      visibleSprite &&
+      !desiredSprite &&
+      (visibleSprite === entry.stompSprite || visibleSprite === entry.castSprite)
+    ) {
+      visibleSprite.setFrame(0);
+    }
     visibleSprite?.setVisible(true);
 
     if (entry.walkSprite && visibleSprite !== entry.walkSprite) {
