@@ -69,6 +69,39 @@ async function waitForBossFrame(room, expectedAction, expectedFrame, label) {
   throw new Error(`${label}: boss never reached ${expectedAction} frame ${expectedFrame}`);
 }
 
+async function waitForNextBossAttack(room, previousAttack, expectedAttack, label) {
+  const deadline = Date.now() + BOSS_TIMEOUT_MS;
+  let leftPreviousAttack = false;
+  while (Date.now() < deadline) {
+    const action = room.state?.boss?.action;
+    if (action !== previousAttack) leftPreviousAttack = true;
+    if (leftPreviousAttack && (action === "stomp" || action === "cast")) {
+      assert(action === expectedAttack, `${label}: expected ${expectedAttack}, got ${action}`);
+      return;
+    }
+    await sleep(20);
+  }
+  throw new Error(`${label}: boss never entered its next attack`);
+}
+
+async function waitForCastRelease(room, label) {
+  const deadline = Date.now() + BOSS_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const boss = room.state?.boss;
+    if (boss?.action === "cast") {
+      const projectileCount = room.state?.bossProjectiles?.size ?? 0;
+      if (boss.attackFrame < 5) {
+        assert(projectileCount === 0, `${label}: projectiles spawned before cast frame 5`);
+      } else if (boss.attackFrame === 5) {
+        assert(projectileCount === 8, `${label}: frame 5 should release exactly eight projectiles`);
+        return;
+      }
+    }
+    await sleep(10);
+  }
+  throw new Error(`${label}: boss never released projectiles on cast frame 5`);
+}
+
 async function waitForProjectileBurst(room, label) {
   const deadline = Date.now() + BOSS_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -145,8 +178,8 @@ async function main() {
 
   await waitForBossAction(playerA.room, "stomp", "stomp attack");
   await waitForBossFrame(playerA.room, "stomp", 5, "stomp impact");
-  await waitForBossAction(playerA.room, "cast", "second boss attack");
-  await waitForBossFrame(playerA.room, "cast", 5, "cast release");
+  await waitForNextBossAttack(playerA.room, "stomp", "cast", "attack alternation");
+  await waitForCastRelease(playerA.room, "cast release");
   await waitForProjectileBurst(playerA.room, "light-orb attack");
   await waitForProjectilesToDespawn(playerA.room, "light-orb attack");
   console.log("OK: boss alternates attacks, emits eight projectiles, and despawns them at bounds");

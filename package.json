@@ -1,0 +1,12 @@
+{
+  "name": "nuggets",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm install --prefix server && npm run build --prefix server",
+    "start": "node server/dist/index.js"
+  }
+}

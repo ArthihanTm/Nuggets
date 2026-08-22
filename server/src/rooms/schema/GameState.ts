@@ -1,4 +1,5 @@
 import { Schema, type, MapSchema } from "@colyseus/schema";
+import type { RoundPhase } from "../roundRules";
 
 /**
  * State of a single player, synced to every client in the room.
@@ -20,6 +21,7 @@ export class Player extends Schema {
   @type("number") invulnRemaining = 0;
   @type("number") featherCooldown = 0;
   @type("number") spawnIndex = 0;
+  @type("boolean") ready = false;
 }
 
 export class Enemy extends Schema {
@@ -67,6 +69,9 @@ export class Nugget extends Schema {
 }
 
 export class GameState extends Schema {
+  @type("string") phase: RoundPhase = "title";
+  @type("number") targetPlayers = 2;
+  @type("string") lobbyOwnerId = "";
   @type({ map: Player }) players = new MapSchema<Player>();
   @type({ map: Enemy }) enemies = new MapSchema<Enemy>();
   @type(Boss) boss = new Boss();
