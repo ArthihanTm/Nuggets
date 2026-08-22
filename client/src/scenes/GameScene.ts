@@ -47,6 +47,7 @@ interface PlayerVisual {
 // but feels more "delayed". This is a simple interpolation, not full
 // client-side prediction — good enough to start with, see README.
 const INTERP_SPEED = 14;
+const GRASS_HEIGHT = 6;
 
 export class GameScene extends Phaser.Scene {
   private room!: Room;
@@ -136,14 +137,20 @@ export class GameScene extends Phaser.Scene {
 
   private drawLevel() {
     for (const platform of PLATFORMS) {
-      const rect = this.add.rectangle(
+      this.add.rectangle(
         platform.x + platform.width / 2,
         platform.y + platform.height / 2,
         platform.width,
         platform.height,
         0x8b5a2b,
       );
-      rect.setStrokeStyle(2, 0x5a3a1a);
+      this.add.rectangle(
+        platform.x + platform.width / 2,
+        platform.y + GRASS_HEIGHT / 2,
+        platform.width,
+        GRASS_HEIGHT,
+        0x4f8a2f,
+      );
     }
   }
 
