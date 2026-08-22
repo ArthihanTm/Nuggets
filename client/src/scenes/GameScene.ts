@@ -5,8 +5,12 @@ import {
   ANT_DEFEAT_PATH,
   ANT_PATH,
   BACKGROUND_PATH,
+  BOSS_CAST_PATH,
   BOSS_FRONT_PATH,
+  BOSS_DEFEAT_PATH,
+  BOSS_LIGHT_ORB_PATH,
   BOSS_SIDE_PATH,
+  BOSS_STOMP_PATH,
   FEATHER_PATH,
   NUGGET_PATH,
   PLATFORM_PATH,
@@ -42,18 +46,51 @@ const BACKGROUND_KEY = "background";
 const BOSS_SIDE_KEY = "boss-side";
 const BOSS_SIDE_SRC_KEY = "boss-side-src";
 const BOSS_FRONT_KEY = "boss-front";
+const BOSS_STOMP_KEY = "boss-stomp";
+const BOSS_STOMP_SRC_KEY = "boss-stomp-src";
+const BOSS_CAST_KEY = "boss-cast";
+const BOSS_CAST_SRC_KEY = "boss-cast-src";
+const BOSS_LIGHT_ORB_KEY = "boss-light-orb";
+const BOSS_LIGHT_ORB_SRC_KEY = "boss-light-orb-src";
 const PLATFORM_SRC_KEY = "platforms-src";
 const FEATHER_KEY = "feather";
 const NUGGET_KEY = "nugget";
 const PLAYER_DEFEAT_KEY = "player-defeat";
 const RAVEN_DEFEAT_KEY = "raven-defeat";
 const ANT_DEFEAT_KEY = "ant-defeat";
+const PLAYER_DEFEAT_SRC_KEY = "player-defeat-src";
+const RAVEN_DEFEAT_SRC_KEY = "raven-defeat-src";
+const ANT_DEFEAT_SRC_KEY = "ant-defeat-src";
 const platformTextureKey = (segment: number) => `platform-${segment}`;
 
 const FEATHER_DISPLAY_HEIGHT = 20;
 const NUGGET_DISPLAY_SIZE = 24;
+const BOSS_PROJECTILE_DISPLAY_SIZE = 30;
 const DUCK_MAX_LIVES = 3;
 const BOSS_MAX_HP = 15;
+
+const PLAYER_DEFEAT_FRAME_WIDTH = 170;
+const PLAYER_DEFEAT_FRAME_HEIGHT = 168;
+const PLAYER_DEFEAT_FRAME_COUNT = 6;
+const PLAYER_DEFEAT_FRAMES = [0, 1, 2, 3, 4, 5];
+const PLAYER_DEFEAT_FRAME_RATE = 10;
+
+const ANT_DEFEAT_FRAME_WIDTH = 170;
+const ANT_DEFEAT_FRAME_HEIGHT = 168;
+const ANT_DEFEAT_FRAME_COUNT = 6;
+const ANT_DEFEAT_FRAMES = [0, 1, 2, 3, 4, 5];
+const ANT_DEFEAT_FRAME_RATE = 12;
+
+// raven-defeat: 1024×1024, 3×3 grid — all 9 frames play in order (fall sequence).
+const RAVEN_DEFEAT_FRAME_WIDTH = 341;
+const RAVEN_DEFEAT_FRAME_HEIGHT = 341;
+const RAVEN_DEFEAT_FRAME_COUNT = 9;
+const RAVEN_DEFEAT_FRAMES = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+const RAVEN_DEFEAT_FRAME_RATE = 9;
+const RAVEN_DEFEAT_SCALE = RAVEN_HEIGHT / RAVEN_DEFEAT_FRAME_HEIGHT;
+const RAVEN_DEFEAT_FALL_PX = 56;
+const RAVEN_DEFEAT_HOLD_MS = 800;
+const DEFEAT_HOLD_MS = 500;
 
 // Duck spritesheet: 1024×168 px, 6 walk frames in one row.
 const SPRITE_FRAME_WIDTH = 170;
@@ -85,6 +122,18 @@ const BOSS_SIDE_FRAME_COUNT = 6;
 const BOSS_SCALE = BOSS_HEIGHT / BOSS_SIDE_FRAME_HEIGHT;
 const BOSS_WALK_FRAMES = [0, 1, 2, 3, 4, 5];
 const BOSS_WALK_FRAME_RATE = 10;
+const BOSS_ATTACK_FRAME_COUNT = 6;
+const BOSS_LIGHT_ORB_CROP = { x: 20, y: 10, width: 400, height: 390 };
+
+// boss-defeat: 1024×1024, 3×2 grid — 6-frame knockdown sequence.
+const BOSS_DEFEAT_KEY = "boss-defeat";
+const BOSS_DEFEAT_SRC_KEY = "boss-defeat-src";
+const BOSS_DEFEAT_FRAME_WIDTH = BOSS_SIDE_FRAME_WIDTH;
+const BOSS_DEFEAT_FRAME_HEIGHT = BOSS_SIDE_FRAME_HEIGHT;
+const BOSS_DEFEAT_FRAME_COUNT = 6;
+const BOSS_DEFEAT_FRAMES = [0, 1, 2, 3, 4, 5];
+const BOSS_DEFEAT_FRAME_RATE = 8;
+const BOSS_DEFEAT_SCALE = BOSS_HEIGHT / BOSS_DEFEAT_FRAME_HEIGHT;
 
 const BACKGROUND_PAN_SPEED = 0.00012;
 
@@ -104,6 +153,7 @@ interface PlayerVisual {
   isSprite: boolean;
   currentAnim: "idle" | "walk" | null;
   showingDefeat: boolean;
+  defeatAnimStarted: boolean;
 }
 
 interface EnemyVisual {
@@ -117,7 +167,9 @@ interface BossVisual {
   root: Phaser.GameObjects.Container | Phaser.GameObjects.Rectangle;
   idleSprite: Phaser.GameObjects.Sprite | null;
   walkSprite: Phaser.GameObjects.Sprite | null;
-  mode: "idle" | "walk" | null;
+  stompSprite: Phaser.GameObjects.Sprite | null;
+  castSprite: Phaser.GameObjects.Sprite | null;
+  mode: "idle" | "walk" | "stomp" | "cast" | null;
 }
 
 const INTERP_SPEED = 14;
@@ -128,6 +180,10 @@ export class GameScene extends Phaser.Scene {
   private visuals = new Map<string, PlayerVisual>();
   private enemyVisuals = new Map<string, EnemyVisual>();
   private featherVisuals = new Map<string, Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle>();
+  private bossProjectileVisuals = new Map<
+    string,
+    Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle
+  >();
   private nuggetVisuals = new Map<string, Phaser.GameObjects.Image>();
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: {
@@ -142,6 +198,9 @@ export class GameScene extends Phaser.Scene {
   private hasAntSprite = false;
   private hasBossSprite = false;
   private hasBossFrontSprite = false;
+  private hasBossStompSprite = false;
+  private hasBossCastSprite = false;
+  private hasBossLightOrbSprite = false;
   private hasPlatformSprites = false;
   private bossFrontScale = BOSS_SCALE;
   private bossVisual: BossVisual | null = null;
@@ -157,6 +216,9 @@ export class GameScene extends Phaser.Scene {
   private hasPlayerDefeatSprite = false;
   private hasRavenDefeatSprite = false;
   private hasAntDefeatSprite = false;
+  private hasBossDefeatSprite = false;
+  private bossDefeatShown = false;
+  private bossDefeatSprite: Phaser.GameObjects.Sprite | null = null;
   private featherScale = 1;
   private nuggetScale = 1;
   private playerDefeatScale = SPRITE_SCALE;
@@ -177,13 +239,17 @@ export class GameScene extends Phaser.Scene {
     this.load.image(ANT_SRC_KEY, ANT_PATH);
     this.load.image(BOSS_SIDE_SRC_KEY, BOSS_SIDE_PATH);
     this.load.image(BOSS_FRONT_KEY, BOSS_FRONT_PATH);
+    this.load.image(BOSS_STOMP_SRC_KEY, BOSS_STOMP_PATH);
+    this.load.image(BOSS_CAST_SRC_KEY, BOSS_CAST_PATH);
+    this.load.image(BOSS_LIGHT_ORB_SRC_KEY, BOSS_LIGHT_ORB_PATH);
     this.load.image(BACKGROUND_KEY, BACKGROUND_PATH);
     this.load.image(PLATFORM_SRC_KEY, PLATFORM_PATH);
     this.load.image(FEATHER_KEY, FEATHER_PATH);
     this.load.image(NUGGET_KEY, NUGGET_PATH);
-    this.load.image(PLAYER_DEFEAT_KEY, PLAYER_DEFEAT_PATH);
-    this.load.image(RAVEN_DEFEAT_KEY, RAVEN_DEFEAT_PATH);
-    this.load.image(ANT_DEFEAT_KEY, ANT_DEFEAT_PATH);
+    this.load.image(PLAYER_DEFEAT_SRC_KEY, PLAYER_DEFEAT_PATH);
+    this.load.image(RAVEN_DEFEAT_SRC_KEY, RAVEN_DEFEAT_PATH);
+    this.load.image(ANT_DEFEAT_SRC_KEY, ANT_DEFEAT_PATH);
+    this.load.image(BOSS_DEFEAT_SRC_KEY, BOSS_DEFEAT_PATH);
   }
 
   create() {
@@ -196,18 +262,27 @@ export class GameScene extends Phaser.Scene {
     this.setupAntAnimations();
     this.processBossSideTexture();
     this.processBossFrontTexture();
+    this.processBossAttackTextures();
+    this.processBossLightOrbTexture();
     this.setupBossAnimations();
     this.processPlatformTextures();
+    this.processDefeatTextures();
+    this.setupDefeatAnimations();
     this.setupCombatAssets();
     this.drawBackground();
     this.drawLevel();
     this.bindRoomState();
     this.bindEnemyState();
     this.bindFeatherState();
+    this.bindBossProjectileState();
     this.bindNuggetState();
     this.createBossVisual();
     this.bindBossState();
     this.bindInput();
+
+    if (!this.room.state.boss.alive) {
+      this.showBossDefeat();
+    }
 
     this.statusText = this.add
       .text(16, 16, "", {
@@ -432,6 +507,137 @@ export class GameScene extends Phaser.Scene {
     this.hasPlatformSprites = true;
   }
 
+  private processDefeatSpritesheet(
+    srcKey: string,
+    outKey: string,
+    frameWidth: number,
+    frameHeight: number,
+  ): boolean {
+    const canvas = this.chromaKeyGreenScreen(srcKey);
+    if (!canvas) return false;
+
+    if (this.textures.exists(outKey)) this.textures.remove(outKey);
+    if (this.textures.exists(srcKey)) this.textures.remove(srcKey);
+    this.textures.addSpriteSheet(outKey, canvas as unknown as HTMLImageElement, {
+      frameWidth,
+      frameHeight,
+    });
+    this.textures.get(outKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    return true;
+  }
+
+  private processDefeatTextures() {
+    if (
+      this.processDefeatSpritesheet(
+        PLAYER_DEFEAT_SRC_KEY,
+        PLAYER_DEFEAT_KEY,
+        PLAYER_DEFEAT_FRAME_WIDTH,
+        PLAYER_DEFEAT_FRAME_HEIGHT,
+      )
+    ) {
+      this.hasPlayerDefeatSprite = true;
+    }
+
+    if (
+      this.processDefeatSpritesheet(
+        ANT_DEFEAT_SRC_KEY,
+        ANT_DEFEAT_KEY,
+        ANT_DEFEAT_FRAME_WIDTH,
+        ANT_DEFEAT_FRAME_HEIGHT,
+      )
+    ) {
+      this.hasAntDefeatSprite = true;
+    }
+
+    if (
+      this.processDefeatSpritesheet(
+        RAVEN_DEFEAT_SRC_KEY,
+        RAVEN_DEFEAT_KEY,
+        RAVEN_DEFEAT_FRAME_WIDTH,
+        RAVEN_DEFEAT_FRAME_HEIGHT,
+      )
+    ) {
+      this.hasRavenDefeatSprite = true;
+    }
+
+    if (
+      this.processDefeatSpritesheet(
+        BOSS_DEFEAT_SRC_KEY,
+        BOSS_DEFEAT_KEY,
+        BOSS_DEFEAT_FRAME_WIDTH,
+        BOSS_DEFEAT_FRAME_HEIGHT,
+      )
+    ) {
+      this.hasBossDefeatSprite = true;
+    }
+  }
+
+  private setupDefeatAnimations() {
+    if (this.hasPlayerDefeatSprite) {
+      const frameTotal = Math.min(
+        PLAYER_DEFEAT_FRAME_COUNT,
+        Math.max(0, this.textures.get(PLAYER_DEFEAT_KEY).frameTotal - 1),
+      );
+      const frames = PLAYER_DEFEAT_FRAMES.filter((f) => f >= 0 && f < frameTotal);
+      if (frames.length > 0) {
+        this.anims.create({
+          key: "player-defeat",
+          frames: this.anims.generateFrameNumbers(PLAYER_DEFEAT_KEY, { frames }),
+          frameRate: PLAYER_DEFEAT_FRAME_RATE,
+          repeat: 0,
+        });
+      }
+    }
+
+    if (this.hasAntDefeatSprite) {
+      const frameTotal = Math.min(
+        ANT_DEFEAT_FRAME_COUNT,
+        Math.max(0, this.textures.get(ANT_DEFEAT_KEY).frameTotal - 1),
+      );
+      const frames = ANT_DEFEAT_FRAMES.filter((f) => f >= 0 && f < frameTotal);
+      if (frames.length > 0) {
+        this.anims.create({
+          key: "ant-defeat",
+          frames: this.anims.generateFrameNumbers(ANT_DEFEAT_KEY, { frames }),
+          frameRate: ANT_DEFEAT_FRAME_RATE,
+          repeat: 0,
+        });
+      }
+    }
+
+    if (this.hasRavenDefeatSprite) {
+      const frameTotal = Math.min(
+        RAVEN_DEFEAT_FRAME_COUNT,
+        Math.max(0, this.textures.get(RAVEN_DEFEAT_KEY).frameTotal - 1),
+      );
+      const frames = RAVEN_DEFEAT_FRAMES.filter((f) => f >= 0 && f <= frameTotal);
+      if (frames.length > 0) {
+        this.anims.create({
+          key: "raven-defeat",
+          frames: this.anims.generateFrameNumbers(RAVEN_DEFEAT_KEY, { frames }),
+          frameRate: RAVEN_DEFEAT_FRAME_RATE,
+          repeat: 0,
+        });
+      }
+    }
+
+    if (this.hasBossDefeatSprite) {
+      const frameTotal = Math.min(
+        BOSS_DEFEAT_FRAME_COUNT,
+        Math.max(0, this.textures.get(BOSS_DEFEAT_KEY).frameTotal - 1),
+      );
+      const frames = BOSS_DEFEAT_FRAMES.filter((f) => f >= 0 && f <= frameTotal);
+      if (frames.length > 0) {
+        this.anims.create({
+          key: "boss-defeat",
+          frames: this.anims.generateFrameNumbers(BOSS_DEFEAT_KEY, { frames }),
+          frameRate: BOSS_DEFEAT_FRAME_RATE,
+          repeat: 0,
+        });
+      }
+    }
+  }
+
   private setupCombatAssets() {
     if (this.textures.exists(FEATHER_KEY)) {
       this.hasFeatherSprite = true;
@@ -444,18 +650,8 @@ export class GameScene extends Phaser.Scene {
       const nuggetHeight = this.textures.get(NUGGET_KEY).getSourceImage().height;
       this.nuggetScale = NUGGET_DISPLAY_SIZE / nuggetHeight;
     }
-    if (this.textures.exists(PLAYER_DEFEAT_KEY)) {
-      this.hasPlayerDefeatSprite = true;
-      this.textures.get(PLAYER_DEFEAT_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
-      this.playerDefeatScale = PLAYER_HEIGHT / this.textures.get(PLAYER_DEFEAT_KEY).getSourceImage().height;
-    }
-    if (this.textures.exists(RAVEN_DEFEAT_KEY)) {
-      this.hasRavenDefeatSprite = true;
-      this.textures.get(RAVEN_DEFEAT_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
-    }
-    if (this.textures.exists(ANT_DEFEAT_KEY)) {
-      this.hasAntDefeatSprite = true;
-      this.textures.get(ANT_DEFEAT_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    if (this.hasPlayerDefeatSprite) {
+      this.playerDefeatScale = PLAYER_HEIGHT / PLAYER_DEFEAT_FRAME_HEIGHT;
     }
   }
 
@@ -480,6 +676,58 @@ export class GameScene extends Phaser.Scene {
     this.textures.get(BOSS_FRONT_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
     this.bossFrontScale = BOSS_HEIGHT / canvas.height;
     this.hasBossFrontSprite = true;
+  }
+
+  private processBossAttackSpritesheet(srcKey: string, outKey: string): boolean {
+    const canvas = this.chromaKeyGreenScreen(srcKey);
+    if (!canvas) return false;
+
+    if (this.textures.exists(outKey)) this.textures.remove(outKey);
+    if (this.textures.exists(srcKey)) this.textures.remove(srcKey);
+    this.textures.addSpriteSheet(outKey, canvas as unknown as HTMLImageElement, {
+      frameWidth: BOSS_SIDE_FRAME_WIDTH,
+      frameHeight: BOSS_SIDE_FRAME_HEIGHT,
+    });
+    this.textures.get(outKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    return true;
+  }
+
+  private processBossAttackTextures() {
+    this.hasBossStompSprite = this.processBossAttackSpritesheet(
+      BOSS_STOMP_SRC_KEY,
+      BOSS_STOMP_KEY,
+    );
+    this.hasBossCastSprite = this.processBossAttackSpritesheet(BOSS_CAST_SRC_KEY, BOSS_CAST_KEY);
+  }
+
+  private processBossLightOrbTexture() {
+    const sourceCanvas = this.chromaKeyGreenScreen(BOSS_LIGHT_ORB_SRC_KEY);
+    if (!sourceCanvas) return;
+
+    const crop = BOSS_LIGHT_ORB_CROP;
+    const orbCanvas = document.createElement("canvas");
+    orbCanvas.width = crop.width;
+    orbCanvas.height = crop.height;
+    const ctx = orbCanvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.drawImage(
+      sourceCanvas,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      crop.width,
+      crop.height,
+    );
+
+    if (this.textures.exists(BOSS_LIGHT_ORB_KEY)) this.textures.remove(BOSS_LIGHT_ORB_KEY);
+    if (this.textures.exists(BOSS_LIGHT_ORB_SRC_KEY)) this.textures.remove(BOSS_LIGHT_ORB_SRC_KEY);
+    this.textures.addImage(BOSS_LIGHT_ORB_KEY, orbCanvas as unknown as HTMLImageElement);
+    this.textures.get(BOSS_LIGHT_ORB_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.hasBossLightOrbSprite = true;
   }
 
   private setupBossAnimations() {
@@ -613,6 +861,7 @@ export class GameScene extends Phaser.Scene {
         isSprite: this.hasPlayerSprite,
         currentAnim: this.hasPlayerSprite ? "idle" : null,
         showingDefeat: false,
+        defeatAnimStarted: false,
       });
     };
 
@@ -697,27 +946,47 @@ export class GameScene extends Phaser.Scene {
     if (entry.defeatShown) return;
     entry.defeatShown = true;
 
+    const isAnt = enemy.kind === "ant";
     const x = entry.body.x;
     const y = entry.body.y;
+    const facingRight = enemy.facing >= 0;
+
+    let defeatScale = isAnt ? ANT_SCALE : RAVEN_DEFEAT_SCALE;
+    if (!isAnt && entry.isSprite) {
+      defeatScale =
+        (entry.body as Phaser.GameObjects.Sprite).displayHeight / RAVEN_DEFEAT_FRAME_HEIGHT;
+    }
+
     entry.body.destroy();
     this.enemyVisuals.delete(enemyId);
 
-    const defeatKey =
-      enemy.kind === "ant"
-        ? this.hasAntDefeatSprite
-          ? ANT_DEFEAT_KEY
-          : null
-        : this.hasRavenDefeatSprite
-          ? RAVEN_DEFEAT_KEY
-          : null;
+    const hasDefeat = isAnt ? this.hasAntDefeatSprite : this.hasRavenDefeatSprite;
+    const defeatKey = isAnt ? ANT_DEFEAT_KEY : RAVEN_DEFEAT_KEY;
+    const animKey = isAnt ? "ant-defeat" : "raven-defeat";
 
-    if (defeatKey) {
-      const sprite = this.add.sprite(x, y, defeatKey);
-      sprite.setOrigin(0.5, enemy.kind === "ant" ? 1 : 0.55);
-      sprite.setScale(enemy.kind === "ant" ? ANT_SCALE : RAVEN_SCALE);
-      sprite.setDepth(91);
-      this.time.delayedCall(600, () => sprite.destroy());
+    if (!hasDefeat || !this.anims.exists(animKey)) return;
+
+    const sprite = this.add.sprite(x, y, defeatKey, 0);
+    sprite.setOrigin(0.5, isAnt ? 1 : 0.55);
+    sprite.setScale(defeatScale);
+    sprite.setFlipX(!facingRight);
+    sprite.setDepth(91);
+    sprite.play(animKey);
+
+    if (!isAnt) {
+      const fallDuration = (RAVEN_DEFEAT_FRAMES.length / RAVEN_DEFEAT_FRAME_RATE) * 1000;
+      this.tweens.add({
+        targets: sprite,
+        y: y + RAVEN_DEFEAT_FALL_PX,
+        duration: fallDuration,
+        ease: "Quad.easeIn",
+      });
     }
+
+    const holdMs = isAnt ? DEFEAT_HOLD_MS : RAVEN_DEFEAT_HOLD_MS;
+    sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+      this.time.delayedCall(holdMs, () => sprite.destroy());
+    });
   }
 
   private bindFeatherState() {
@@ -753,6 +1022,50 @@ export class GameScene extends Phaser.Scene {
 
     this.room.state.feathers.forEach((feather: any, featherId: string) => {
       addFeatherVisual(feather, featherId);
+    });
+  }
+
+  private bindBossProjectileState() {
+    const $ = getStateCallbacks(this.room);
+
+    const addBossProjectileVisual = (projectile: any, projectileId: string) => {
+      if (this.bossProjectileVisuals.has(projectileId)) return;
+
+      let visual: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+      if (this.hasBossLightOrbSprite) {
+        const scale =
+          BOSS_PROJECTILE_DISPLAY_SIZE / Math.max(BOSS_LIGHT_ORB_CROP.width, BOSS_LIGHT_ORB_CROP.height);
+        visual = this.add
+          .image(projectile.x, projectile.y, BOSS_LIGHT_ORB_KEY)
+          .setOrigin(0.5)
+          .setScale(scale);
+      } else {
+        visual = this.add.rectangle(
+          projectile.x,
+          projectile.y,
+          BOSS_PROJECTILE_DISPLAY_SIZE,
+          BOSS_PROJECTILE_DISPLAY_SIZE,
+          0xfff3a1,
+        );
+        visual.setStrokeStyle(2, 0x8a78e8);
+      }
+      visual.setDepth(108);
+      this.bossProjectileVisuals.set(projectileId, visual);
+    };
+
+    $(this.room.state).bossProjectiles.onAdd((projectile, projectileId: string) => {
+      addBossProjectileVisual(projectile, projectileId);
+    });
+
+    $(this.room.state).bossProjectiles.onRemove((_projectile, projectileId: string) => {
+      const visual = this.bossProjectileVisuals.get(projectileId);
+      if (!visual) return;
+      visual.destroy();
+      this.bossProjectileVisuals.delete(projectileId);
+    });
+
+    this.room.state.bossProjectiles.forEach((projectile: any, projectileId: string) => {
+      addBossProjectileVisual(projectile, projectileId);
     });
   }
 
@@ -805,13 +1118,57 @@ export class GameScene extends Phaser.Scene {
 
     $(this.room.state).boss.listen("waiting", syncBossVisual);
     $(this.room.state).boss.listen("facing", syncBossVisual);
-    $(this.room.state).boss.listen("alive", syncBossVisual);
+    $(this.room.state).boss.listen("action", syncBossVisual);
+    $(this.room.state).boss.listen("attackFrame", syncBossVisual);
+    $(this.room.state).boss.listen("alive", (alive: boolean) => {
+      if (!alive) this.showBossDefeat();
+      else syncBossVisual();
+    });
+  }
+
+  private showBossDefeat() {
+    if (this.bossDefeatShown || !this.bossVisual) return;
+    this.bossDefeatShown = true;
+
+    const boss = this.room.state.boss;
+    const entry = this.bossVisual;
+    const x = entry.root.x;
+    const y = entry.root.y;
+    const facingRight = boss.facing >= 0;
+
+    let defeatScale = BOSS_DEFEAT_SCALE;
+    if (entry.walkSprite) {
+      defeatScale = entry.walkSprite.displayHeight / BOSS_DEFEAT_FRAME_HEIGHT;
+    } else if (entry.idleSprite) {
+      defeatScale = entry.idleSprite.displayHeight / BOSS_DEFEAT_FRAME_HEIGHT;
+    } else if (entry.stompSprite) {
+      defeatScale = entry.stompSprite.displayHeight / BOSS_DEFEAT_FRAME_HEIGHT;
+    } else if (entry.castSprite) {
+      defeatScale = entry.castSprite.displayHeight / BOSS_DEFEAT_FRAME_HEIGHT;
+    }
+
+    entry.root.setVisible(false);
+
+    if (!this.hasBossDefeatSprite || !this.anims.exists("boss-defeat")) return;
+
+    const sprite = this.add.sprite(x, y, BOSS_DEFEAT_KEY, 0);
+    sprite.setOrigin(0.5, 1);
+    sprite.setScale(defeatScale);
+    sprite.setFlipX(!facingRight);
+    sprite.setDepth(110);
+    sprite.play("boss-defeat");
+    this.bossDefeatSprite = sprite;
   }
 
   private createBossVisual() {
     const boss = this.room.state.boss;
 
-    if (this.hasBossSprite || this.hasBossFrontSprite) {
+    if (
+      this.hasBossSprite ||
+      this.hasBossFrontSprite ||
+      this.hasBossStompSprite ||
+      this.hasBossCastSprite
+    ) {
       const container = this.add.container(boss.x, boss.y).setDepth(110);
 
       let walkSprite: Phaser.GameObjects.Sprite | null = null;
@@ -831,10 +1188,30 @@ export class GameScene extends Phaser.Scene {
         container.add(idleSprite);
       }
 
+      let stompSprite: Phaser.GameObjects.Sprite | null = null;
+      if (this.hasBossStompSprite) {
+        stompSprite = this.add.sprite(0, 0, BOSS_STOMP_KEY, 0);
+        stompSprite.setOrigin(0.5, 1);
+        stompSprite.setScale(BOSS_SCALE);
+        stompSprite.setVisible(false);
+        container.add(stompSprite);
+      }
+
+      let castSprite: Phaser.GameObjects.Sprite | null = null;
+      if (this.hasBossCastSprite) {
+        castSprite = this.add.sprite(0, 0, BOSS_CAST_KEY, 0);
+        castSprite.setOrigin(0.5, 1);
+        castSprite.setScale(BOSS_SCALE);
+        castSprite.setVisible(false);
+        container.add(castSprite);
+      }
+
       this.bossVisual = {
         root: container,
         idleSprite,
         walkSprite,
+        stompSprite,
+        castSprite,
         mode: null,
       };
       this.updateBossVisual(this.bossVisual, boss);
@@ -855,6 +1232,8 @@ export class GameScene extends Phaser.Scene {
       root: rect,
       idleSprite: null,
       walkSprite: null,
+      stompSprite: null,
+      castSprite: null,
       mode: null,
     };
   }
@@ -913,6 +1292,7 @@ export class GameScene extends Phaser.Scene {
     this.interpolatePlayers(delta);
     this.interpolateEnemies(delta);
     this.interpolateFeathers(delta);
+    this.interpolateBossProjectiles(delta);
     this.interpolateBoss(delta);
     this.updateBackground(time);
     this.updateStatusText();
@@ -979,11 +1359,18 @@ export class GameScene extends Phaser.Scene {
     const sprite = entry.body as Phaser.GameObjects.Sprite;
 
     if (!player.alive) {
-      if (!entry.showingDefeat && entry.isSprite && this.hasPlayerDefeatSprite) {
-        sprite.setTexture(PLAYER_DEFEAT_KEY);
+      if (
+        !entry.defeatAnimStarted &&
+        this.hasPlayerDefeatSprite &&
+        this.anims.exists("player-defeat")
+      ) {
+        sprite.setTexture(PLAYER_DEFEAT_KEY, 0);
         sprite.setScale(this.playerDefeatScale);
+        sprite.setFlipX(player.facing < 0);
         sprite.anims.stop();
+        sprite.play("player-defeat");
         entry.showingDefeat = true;
+        entry.defeatAnimStarted = true;
         entry.currentAnim = null;
       }
       entry.body.setAlpha(0.85);
@@ -991,10 +1378,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (entry.showingDefeat && entry.isSprite && this.hasPlayerSprite) {
+    if (entry.defeatAnimStarted || entry.showingDefeat) {
       sprite.setTexture(SPRITE_KEY, 0);
       sprite.setScale(SPRITE_SCALE);
       entry.showingDefeat = false;
+      entry.defeatAnimStarted = false;
       entry.currentAnim = "idle";
       if (this.anims.exists("idle")) sprite.play("idle");
     }
@@ -1051,12 +1439,26 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private interpolateBossProjectiles(delta: number) {
+    const t = Math.min(1, (INTERP_SPEED * delta) / 1000);
+
+    this.room.state.bossProjectiles.forEach((projectile: any, projectileId: string) => {
+      const visual = this.bossProjectileVisuals.get(projectileId);
+      if (!visual) return;
+      visual.setPosition(
+        Phaser.Math.Linear(visual.x, projectile.x, t),
+        Phaser.Math.Linear(visual.y, projectile.y, t),
+      );
+    });
+  }
+
   private interpolateBoss(delta: number) {
     const entry = this.bossVisual;
     if (!entry) return;
 
     const boss = this.room.state.boss;
     if (!boss.alive) {
+      if (this.bossDefeatShown) return;
       entry.root.setVisible(false);
       return;
     }
@@ -1064,7 +1466,7 @@ export class GameScene extends Phaser.Scene {
 
     const t = Math.min(1, (INTERP_SPEED * delta) / 1000);
 
-    if (entry.walkSprite || entry.idleSprite) {
+    if (entry.walkSprite || entry.idleSprite || entry.stompSprite || entry.castSprite) {
       const nextX = Phaser.Math.Linear(entry.root.x, boss.x, t);
       const nextY = Phaser.Math.Linear(entry.root.y, boss.y, t);
       entry.root.setPosition(nextX, nextY);
@@ -1083,34 +1485,74 @@ export class GameScene extends Phaser.Scene {
 
   private updateBossVisual(
     entry: BossVisual,
-    boss: { waiting: boolean; facing: number },
+    boss: { waiting: boolean; facing: number; action?: string; attackFrame?: number },
   ) {
-    const waiting = boss.waiting === true;
     const facingRight = boss.facing >= 0;
-    const next: BossVisual["mode"] = waiting ? "idle" : "walk";
+    const action =
+      boss.action === "travel" ||
+      boss.action === "wait" ||
+      boss.action === "stomp" ||
+      boss.action === "cast" ||
+      boss.action === "recovery"
+        ? boss.action
+        : boss.waiting
+          ? "wait"
+          : "travel";
+    const next: BossVisual["mode"] =
+      action === "travel"
+        ? "walk"
+        : action === "stomp"
+          ? "stomp"
+          : action === "cast"
+            ? "cast"
+            : "idle";
+    const attackFrame = Phaser.Math.Clamp(
+      Math.floor(boss.attackFrame ?? 0),
+      0,
+      BOSS_ATTACK_FRAME_COUNT - 1,
+    );
 
-    if (entry.idleSprite) entry.idleSprite.setVisible(waiting);
-    if (entry.walkSprite) entry.walkSprite.setVisible(!waiting);
-
-    if (waiting) {
-      if (entry.walkSprite) entry.walkSprite.anims.stop();
-      entry.mode = next;
-      return;
+    if (entry.walkSprite) {
+      entry.walkSprite.setVisible(false);
+      entry.walkSprite.setFlipX(!facingRight);
+    }
+    if (entry.idleSprite) {
+      entry.idleSprite.setVisible(false);
+      entry.idleSprite.setFlipX(!facingRight);
+    }
+    if (entry.stompSprite) {
+      entry.stompSprite.setVisible(false);
+      entry.stompSprite.setFlipX(!facingRight);
+      entry.stompSprite.setFrame(attackFrame);
+    }
+    if (entry.castSprite) {
+      entry.castSprite.setVisible(false);
+      entry.castSprite.setFlipX(!facingRight);
+      entry.castSprite.setFrame(attackFrame);
     }
 
-    if (!entry.walkSprite) {
-      entry.mode = next;
-      return;
-    }
+    const desiredSprite =
+      next === "walk"
+        ? entry.walkSprite
+        : next === "stomp"
+          ? entry.stompSprite
+          : next === "cast"
+            ? entry.castSprite
+            : entry.idleSprite;
+    const fallbackSprite = entry.idleSprite ?? entry.walkSprite;
+    const visibleSprite = desiredSprite ?? fallbackSprite;
+    visibleSprite?.setVisible(true);
 
-    entry.walkSprite.setFlipX(!facingRight);
-
-    if (entry.mode !== next) {
-      entry.walkSprite.setFrame(0);
+    if (entry.walkSprite && visibleSprite !== entry.walkSprite) {
       entry.walkSprite.anims.stop();
-      if (this.anims.exists("boss-walk")) entry.walkSprite.play("boss-walk");
-    } else if (!entry.walkSprite.anims.isPlaying && this.anims.exists("boss-walk")) {
-      entry.walkSprite.play("boss-walk");
+    } else if (entry.walkSprite && visibleSprite === entry.walkSprite) {
+      if (entry.mode !== next) {
+        entry.walkSprite.setFrame(0);
+        entry.walkSprite.anims.stop();
+      }
+      if (!entry.walkSprite.anims.isPlaying && this.anims.exists("boss-walk")) {
+        entry.walkSprite.play("boss-walk");
+      }
     }
 
     entry.mode = next;

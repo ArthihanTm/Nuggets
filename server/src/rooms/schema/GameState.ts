@@ -40,8 +40,17 @@ export class Boss extends Schema {
   @type("number") y = 0;
   @type("number") facing = 1; // 1 = right, -1 = left
   @type("boolean") waiting = false; // true while paused on a platform (frontal view)
+  @type("string") action = "travel";
+  @type("number") attackFrame = 0;
   @type("number") hp = 15;
   @type("boolean") alive = true;
+}
+
+export class BossProjectile extends Schema {
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") vx = 0;
+  @type("number") vy = 0;
 }
 
 export class Feather extends Schema {
@@ -61,6 +70,7 @@ export class GameState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>();
   @type({ map: Enemy }) enemies = new MapSchema<Enemy>();
   @type(Boss) boss = new Boss();
+  @type({ map: BossProjectile }) bossProjectiles = new MapSchema<BossProjectile>();
   @type({ map: Feather }) feathers = new MapSchema<Feather>();
   @type({ map: Nugget }) nuggets = new MapSchema<Nugget>();
 }

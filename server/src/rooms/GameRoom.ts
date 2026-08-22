@@ -1,5 +1,12 @@
 import { Room, Client } from "@colyseus/core";
-import { GameState, Player, Enemy, Feather, Nugget } from "./schema/GameState";
+import {
+  GameState,
+  Player,
+  Enemy,
+  BossProjectile,
+  Feather,
+  Nugget,
+} from "./schema/GameState";
 import {
   PLATFORMS,
   SPAWN_POINTS,
@@ -41,6 +48,14 @@ const RAVEN_BOB_AMPLITUDE = 18;
 const RAVEN_BOB_SPEED = 2.2;
 const BOSS_SPEED = 90;
 const BOSS_WAIT_DURATION = 1.4;
+const BOSS_ATTACK_FPS = 8;
+const BOSS_ATTACK_FRAMES = 6;
+const BOSS_RECOVERY_DURATION = 0.6;
+const BOSS_STOMP_HEIGHT = 72;
+const BOSS_SHOCKWAVE_RADIUS = 180;
+const BOSS_SHOCKWAVE_HEIGHT = 64;
+const BOSS_PROJECTILE_SPEED = 110;
+const BOSS_PROJECTILE_SIZE = 24;
 const LEDGE_SNAP_TOLERANCE = 36;
 
 // --- combat constants ---
@@ -95,9 +110,11 @@ export class GameRoom extends Room<GameState> {
   private bossTravelToIndex = 0;
   private bossTravelElapsed = 0;
   private bossTravelDuration = 1;
-  private bossIsTraveling = false;
-  private bossIsWaiting = false;
-  private bossWaitElapsed = 0;
+  private bossPhaseElapsed = 0;
+  private bossNextAttack: "stomp" | "cast" = "stomp";
+  private bossAttackTriggered = false;
+  private bossAttackLanding = { x: 0, y: 0 };
+  private bossProjectileCounter = 0;
 
   onCreate() {
     this.setState(new GameState());
@@ -153,11 +170,21 @@ export class GameRoom extends Room<GameState> {
     this.state.boss.y = start.y;
     this.state.boss.facing = 1;
     this.state.boss.waiting = false;
+    this.state.boss.action = "travel";
+    this.state.boss.attackFrame = 0;
     this.state.boss.hp = BOSS_MAX_HP;
     this.state.boss.alive = true;
     this.bossWaypointIndex = 0;
-    this.bossIsTraveling = false;
+    this.bossTravelFrom = { x: start.x, y: start.y };
+    this.bossTravelTo = { x: start.x, y: start.y };
+    this.bossTravelToIndex = 0;
     this.bossTravelElapsed = 0;
+    this.bossTravelDuration = 1;
+    this.bossPhaseElapsed = 0;
+    this.bossNextAttack = "stomp";
+    this.bossAttackTriggered = false;
+    this.bossAttackLanding = { x: start.x, y: start.y };
+    this.bossProjectileCounter = 0;
   }
 
   private spawnNuggets() {
@@ -182,7 +209,8 @@ export class GameRoom extends Room<GameState> {
 
     const distance = Math.hypot(to.x - from.x, to.y - from.y);
     this.bossTravelDuration = Math.max(1.2, distance / BOSS_SPEED);
-    this.bossIsTraveling = true;
+    this.state.boss.action = "travel";
+    this.state.boss.attackFrame = 0;
     this.state.boss.waiting = false;
     this.state.boss.facing = to.x >= from.x ? 1 : -1;
   }
@@ -226,6 +254,7 @@ export class GameRoom extends Room<GameState> {
     if (this.state.boss.alive) {
       this.updateBoss(dt);
     }
+    this.updateBossProjectiles(dt);
     this.updatePlayers(dt);
     this.processShooting(dt);
     this.updateFeathers(dt);
@@ -248,24 +277,47 @@ export class GameRoom extends Room<GameState> {
   private updateBoss(dt: number) {
     const boss = this.state.boss;
 
-    if (this.bossIsWaiting) {
-      this.state.boss.waiting = true;
-      this.bossWaitElapsed += dt;
-      if (this.bossWaitElapsed >= BOSS_WAIT_DURATION) {
-        this.bossIsWaiting = false;
-        this.bossWaitElapsed = 0;
+    if (boss.action === "wait") {
+      boss.waiting = true;
+      this.bossPhaseElapsed += dt;
+      if (this.bossPhaseElapsed >= BOSS_WAIT_DURATION) {
+        boss.action = this.bossNextAttack;
+        this.bossNextAttack = this.bossNextAttack === "stomp" ? "cast" : "stomp";
+        boss.waiting = false;
+        boss.attackFrame = 0;
+        this.bossPhaseElapsed = 0;
+        this.bossAttackTriggered = false;
+        this.bossAttackLanding = { x: boss.x, y: boss.y };
       }
       return;
     }
 
-    if (!this.bossIsTraveling) {
+    if (boss.action === "recovery") {
+      boss.waiting = true;
+      this.bossPhaseElapsed += dt;
+      if (this.bossPhaseElapsed >= BOSS_RECOVERY_DURATION) {
+        boss.action = "travel";
+        boss.attackFrame = 0;
+        boss.waiting = false;
+        this.bossTravelElapsed = 0;
+        this.bossPhaseElapsed = 0;
+      }
+      return;
+    }
+
+    if (boss.action === "stomp" || boss.action === "cast") {
+      this.updateBossAttack(dt);
+      return;
+    }
+
+    if (this.bossTravelElapsed === 0) {
       const from = BOSS_WAYPOINTS[this.bossWaypointIndex];
       const toIndex = (this.bossWaypointIndex + 1) % BOSS_WAYPOINTS.length;
       const to = BOSS_WAYPOINTS[toIndex];
       this.beginBossTravel(from, to, toIndex);
     }
 
-    this.state.boss.waiting = false;
+    boss.waiting = false;
 
     this.bossTravelElapsed += dt;
     const t = Math.min(1, this.bossTravelElapsed / this.bossTravelDuration);
@@ -282,11 +334,135 @@ export class GameRoom extends Room<GameState> {
       boss.x = this.bossTravelTo.x;
       boss.y = this.bossTravelTo.y;
       this.bossWaypointIndex = this.bossTravelToIndex;
-      this.bossIsTraveling = false;
       this.bossTravelElapsed = 0;
-      this.bossIsWaiting = true;
-      this.bossWaitElapsed = 0;
-      this.state.boss.waiting = true;
+      this.bossPhaseElapsed = 0;
+      boss.action = "wait";
+      boss.attackFrame = 0;
+      boss.waiting = true;
+    }
+  }
+
+  private updateBossAttack(dt: number) {
+    const boss = this.state.boss;
+    const attack = boss.action as "stomp" | "cast";
+    this.bossPhaseElapsed += dt;
+    boss.attackFrame = Math.min(
+      BOSS_ATTACK_FRAMES - 1,
+      Math.floor(this.bossPhaseElapsed * BOSS_ATTACK_FPS),
+    );
+
+    if (attack === "stomp") {
+      if (boss.attackFrame < BOSS_ATTACK_FRAMES - 1) {
+        const impactTime = (BOSS_ATTACK_FRAMES - 1) / BOSS_ATTACK_FPS;
+        const progress = Math.min(1, this.bossPhaseElapsed / impactTime);
+        boss.x = this.bossAttackLanding.x;
+        boss.y =
+          this.bossAttackLanding.y - BOSS_STOMP_HEIGHT * Math.sin(Math.PI * progress);
+      } else {
+        boss.x = this.bossAttackLanding.x;
+        boss.y = this.bossAttackLanding.y;
+      }
+    }
+
+    if (boss.attackFrame === BOSS_ATTACK_FRAMES - 1 && !this.bossAttackTriggered) {
+      this.bossAttackTriggered = true;
+      if (attack === "stomp") {
+        this.applyBossShockwave();
+      } else {
+        this.spawnBossProjectileBurst();
+      }
+    }
+
+    if (this.bossPhaseElapsed >= BOSS_ATTACK_FRAMES / BOSS_ATTACK_FPS) {
+      boss.action = "recovery";
+      boss.attackFrame = 0;
+      boss.waiting = true;
+      this.bossPhaseElapsed = 0;
+    }
+  }
+
+  private applyBossShockwave() {
+    this.state.players.forEach((player) => {
+      if (
+        player.alive &&
+        aabbOverlap(
+          player.x,
+          player.y,
+          PLAYER_WIDTH,
+          PLAYER_HEIGHT,
+          this.bossAttackLanding.x,
+          this.bossAttackLanding.y,
+          BOSS_SHOCKWAVE_RADIUS * 2,
+          BOSS_SHOCKWAVE_HEIGHT,
+        )
+      ) {
+        this.applyContactDamage(player);
+      }
+    });
+  }
+
+  private spawnBossProjectileBurst() {
+    const boss = this.state.boss;
+    const originY = boss.y - BOSS_HEIGHT / 2;
+
+    for (let index = 0; index < 8; index++) {
+      const angle = (index * Math.PI) / 4;
+      const projectile = new BossProjectile();
+      projectile.x = boss.x;
+      projectile.y = originY;
+      projectile.vx = Math.cos(angle) * BOSS_PROJECTILE_SPEED;
+      projectile.vy = Math.sin(angle) * BOSS_PROJECTILE_SPEED;
+      this.state.bossProjectiles.set(
+        `boss-projectile-${this.bossProjectileCounter++}`,
+        projectile,
+      );
+    }
+  }
+
+  private updateBossProjectiles(dt: number) {
+    const toRemove: string[] = [];
+    const halfSize = BOSS_PROJECTILE_SIZE / 2;
+
+    this.state.bossProjectiles.forEach((projectile, id) => {
+      projectile.x += projectile.vx * dt;
+      projectile.y += projectile.vy * dt;
+
+      let hitPlayer = false;
+      this.state.players.forEach((player) => {
+        if (
+          hitPlayer ||
+          !player.alive ||
+          !aabbOverlap(
+            projectile.x,
+            projectile.y + halfSize,
+            BOSS_PROJECTILE_SIZE,
+            BOSS_PROJECTILE_SIZE,
+            player.x,
+            player.y,
+            PLAYER_WIDTH,
+            PLAYER_HEIGHT,
+          )
+        ) {
+          return;
+        }
+
+        this.applyContactDamage(player);
+        hitPlayer = true;
+      });
+
+      if (
+        hitPlayer ||
+        projectile.x + halfSize < 0 ||
+        projectile.x - halfSize > WORLD_WIDTH ||
+        projectile.y + halfSize < 0 ||
+        projectile.y - halfSize > WORLD_HEIGHT
+      ) {
+        toRemove.push(id);
+      }
+    });
+
+    for (const id of toRemove) {
+      this.state.bossProjectiles.delete(id);
     }
   }
 
@@ -472,6 +648,9 @@ export class GameRoom extends Room<GameState> {
           if (boss.hp <= 0) {
             boss.hp = 0;
             boss.alive = false;
+            boss.action = "recovery";
+            boss.attackFrame = 0;
+            boss.waiting = true;
           }
           toRemove.push(id);
           return;

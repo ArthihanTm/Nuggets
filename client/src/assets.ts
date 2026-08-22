@@ -8,6 +8,10 @@ export const BACKGROUND_PATH = "/assets/background.png";
 export const PLATFORM_PATH = "/assets/platforms.png";
 export const BOSS_SIDE_PATH = "/assets/boss-side.png";
 export const BOSS_FRONT_PATH = "/assets/boss-front.png";
+export const BOSS_DEFEAT_PATH = "/assets/boss-defeat.png";
+export const BOSS_STOMP_PATH = "/assets/boss-stomp.png";
+export const BOSS_CAST_PATH = "/assets/boss-cast.png";
+export const BOSS_LIGHT_ORB_PATH = "/assets/boss-light-orb.png";
 export const FEATHER_PATH = "/assets/feather.png";
 export const NUGGET_PATH = "/assets/nugget.png";
 

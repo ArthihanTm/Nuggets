@@ -9,7 +9,15 @@ let currentRoom: Room | null = null;
  */
 function resolveServerUrl(): string {
   const params = new URLSearchParams(window.location.search);
-  return params.get("server") ?? "ws://localhost:2567";
+  const override = params.get("server");
+  if (override) return override;
+
+  if (window.location.hostname === "localhost") {
+    return "ws://localhost:2567";
+  }
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}`;
 }
 
 export async function connect(name: string): Promise<Room> {

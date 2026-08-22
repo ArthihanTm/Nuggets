@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "colyseus.js": "0.16.22",
+    "nuggets-server": "file:../server",
     "phaser": "4.2.1"
   },
   "devDependencies": {

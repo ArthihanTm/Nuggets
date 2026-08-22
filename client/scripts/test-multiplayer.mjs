@@ -9,6 +9,7 @@ import { Client } from "colyseus.js";
 
 const SERVER = process.env.SERVER_URL ?? "ws://localhost:2567";
 const TIMEOUT_MS = 10_000;
+const BOSS_TIMEOUT_MS = 20_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,6 +49,34 @@ async function waitForMovement(room, sessionId, label) {
   throw new Error(`${label}: player did not move after input`);
 }
 
+async function waitForBossAction(room, expectedAction, label, timeoutMs = BOSS_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const boss = room.state?.boss;
+    if (boss?.action === expectedAction) return boss;
+    await sleep(20);
+  }
+  throw new Error(`${label}: boss never entered ${expectedAction}`);
+}
+
+async function waitForProjectileBurst(room, label) {
+  const deadline = Date.now() + BOSS_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const projectiles = room.state?.bossProjectiles;
+    if (projectiles?.size === 8) {
+      for (const projectile of projectiles.values()) {
+        assert(
+          [projectile.x, projectile.y, projectile.vx, projectile.vy].every(Number.isFinite),
+          `${label}: projectile state should contain finite position and velocity`,
+        );
+      }
+      return;
+    }
+    await sleep(20);
+  }
+  throw new Error(`${label}: expected an eight-projectile burst`);
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -69,12 +98,31 @@ async function main() {
   assert(bInA?.name === "PlayerB", "PlayerA should see PlayerB in synced state");
   console.log("OK: both clients share the same room state (2 players visible)");
 
+  assert(
+    typeof playerA.room.state.boss?.action === "string",
+    "Boss should expose a synchronized action",
+  );
+  assert(
+    Number.isInteger(playerA.room.state.boss?.attackFrame),
+    "Boss should expose a synchronized integer attack frame",
+  );
+  assert(
+    playerA.room.state.bossProjectiles?.size === 0,
+    "Boss projectile map should exist and start empty",
+  );
+  console.log("OK: boss combat state is synchronized");
+
   playerA.room.send("input", { left: false, right: true, jump: false });
   const movedOnServer = await waitForMovement(playerA.room, playerA.room.sessionId, "PlayerA");
   const movedOnPeer = await waitForMovement(playerB.room, playerA.room.sessionId, "PlayerB view of A");
 
   assert(movedOnPeer > 0, "Peer should receive PlayerA movement via state sync");
   console.log(`OK: PlayerA moved ${movedOnServer.toFixed(0)}px; PlayerB observed ${movedOnPeer.toFixed(0)}px`);
+
+  await waitForBossAction(playerA.room, "stomp", "first boss attack", 8_000);
+  await waitForBossAction(playerA.room, "cast", "second boss attack");
+  await waitForProjectileBurst(playerA.room, "light-orb attack");
+  console.log("OK: boss alternates stomp then cast and emits eight projectiles");
 
   await playerA.room.leave();
   await playerB.room.leave();
