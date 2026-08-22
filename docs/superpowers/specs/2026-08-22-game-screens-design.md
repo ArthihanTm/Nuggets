@@ -49,7 +49,7 @@ Bei `won`/`lost` stoppt `GameScene` sofort das Senden von Input, bleibt aber fü
 `GameState` wird ergänzt um:
 
 - `phase: "title" | "playing" | "won" | "lost"`, initial `title`
-- `targetPlayers: number`, initial `2`, serverseitig auf `2..4` begrenzt
+- `targetPlayers: number`, initial `1`, serverseitig auf `1..4` begrenzt
 - `lobbyOwnerId: string`, Session-ID des ersten verbundenen Spielers
 
 `Player` wird ergänzt um `ready: boolean`, initial `false`.
@@ -58,7 +58,7 @@ Der Lobby-Owner ist der erste Spieler des Raums. Verlässt er den Raum in `title
 
 ### Client-Nachrichten
 
-- `"lobby:setTarget"` mit `{ targetPlayers: 2 | 3 | 4 }`: nur in `title`, nur vom `lobbyOwnerId`; der Wert darf nicht kleiner als die aktuelle Spielerzahl sein.
+- `"lobby:setTarget"` mit `{ targetPlayers: 1 | 2 | 3 | 4 }`: nur in `title`, nur vom `lobbyOwnerId`; der Wert darf nicht kleiner als die aktuelle Spielerzahl sein.
 - `"lobby:setReady"` mit `{ ready: boolean }`: nur in `title`, nur für den sendenden Spieler.
 - `"round:returnToTitle"` ohne Nutzdaten: nur in `won` oder `lost`, von jedem verbundenen Spieler.
 - `"input"` mit dem bestehenden Gameplay-Payload: nur in `playing`.
@@ -76,7 +76,7 @@ Der Server prüft nach Join, Leave, gültiger Zielzahländerung und jeder Ready-
 1. `players.size === targetPlayers`
 2. jeder vorhandene Spieler hat `ready === true`
 
-Nur wenn beides gilt, führt der Server zuerst den vollständigen Rundenreset aus und setzt anschließend `phase = "playing"`. Der Start erfolgt automatisch; es gibt keinen separaten Start-Button. Bei null oder nur einem Spieler ist ein Start durch die Mindestzielzahl 2 ausgeschlossen.
+Nur wenn beides gilt, führt der Server zuerst den vollständigen Rundenreset aus und setzt anschließend `phase = "playing"`. Der Start erfolgt automatisch; es gibt keinen separaten Start-Button. Bei null Spielern ist ein Start ausgeschlossen; Solo-Spiel mit Zielzahl 1 ist erlaubt.
 
 ### `playing -> lost`
 
@@ -116,7 +116,7 @@ Ein kombiniertes Pixel-Panel liegt über dem vorhandenen Spielhintergrund:
 - Logo beziehungsweise Texttitel „Nuggets“
 - vor dem Join: Nameingabe mit bestehender Begrenzung auf 16 Zeichen und „Beitreten“
 - nach dem Join: verbundene Spieler als Liste mit Name und eindeutigem Ready-Status
-- Zielspielerzahl 2–4 als kantige Auswahl; nur für den Lobby-Owner aktiv
+- Zielspielerzahl 1–4 als kantige Auswahl; nur für den Lobby-Owner aktiv
 - Ready-/Nicht-ready-Button für den lokalen Spieler
 - kompakte Steuerungshinweise für Bewegung, Sprung und Feder
 - verständlicher Status, solange Spieler fehlen oder noch nicht alle bereit sind
@@ -145,7 +145,7 @@ Es wird kein Test-Framework eingeführt. Start-, Sieg- und Niederlagenbedingung 
 Mindestens abzudecken:
 
 - `title` startet nicht unter Zielzahl, nicht über einen ungültigen Zielwert und nicht mit einem unbereiten Spieler.
-- Nur der Lobby-Owner kann das Ziel auf 2–4 setzen; ein Ziel unter aktueller Spielerzahl wird verworfen.
+- Nur der Lobby-Owner kann das Ziel auf 1–4 setzen; ein Ziel unter aktueller Spielerzahl wird verworfen.
 - Exakte Zielzahl plus alle ready führt genau einmal zu `playing`.
 - Null Spieler ist keine Niederlage; mindestens ein Spieler und alle `alive = false` führt zu `lost`.
 - Boss-Tod allein reicht bei einem lebenden regulären Gegner nicht; Sieg entsteht erst bei totem Boss und ausschließlich toten regulären Gegnern.

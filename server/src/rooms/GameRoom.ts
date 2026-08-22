@@ -26,6 +26,12 @@ import {
   ANT_HEIGHT,
   NUGGET_SPAWNS,
 } from "../level";
+import {
+  canStartRound,
+  isPlayingPhase,
+  isRoundWon,
+  isTeamWiped,
+} from "./roundRules";
 
 interface PlayerInput {
   left: boolean;
@@ -36,6 +42,14 @@ interface PlayerInput {
 
 interface JoinOptions {
   name?: string;
+}
+
+interface SetTargetMessage {
+  targetPlayers?: unknown;
+}
+
+interface SetReadyMessage {
+  ready?: unknown;
 }
 
 const TICK_RATE = 60;
@@ -102,6 +116,7 @@ export class GameRoom extends Room<GameState> {
   private inputs = new Map<string, PlayerInput>();
   private prevJump = new Map<string, boolean>();
   private prevShoot = new Map<string, boolean>();
+  private joinOrder: string[] = [];
   private featherCounter = 0;
   private simTime = 0;
   private bossWaypointIndex = 0;
@@ -118,11 +133,17 @@ export class GameRoom extends Room<GameState> {
 
   onCreate() {
     this.setState(new GameState());
+    this.state.phase = "title";
+    this.state.targetPlayers = 1;
+    this.state.lobbyOwnerId = "";
     this.spawnEnemies();
     this.spawnBoss();
     this.spawnNuggets();
 
     this.onMessage("input", (client, message: PlayerInput) => {
+      if (!isPlayingPhase(this.state.phase) || !this.state.players.has(client.sessionId)) {
+        return;
+      }
       this.inputs.set(client.sessionId, {
         left: !!message?.left,
         right: !!message?.right,
@@ -131,7 +152,130 @@ export class GameRoom extends Room<GameState> {
       });
     });
 
+    this.onMessage("lobby:setTarget", (client, message: SetTargetMessage) => {
+      if (this.state.phase !== "title") return;
+      this.normalizeLobbyOwner();
+      if (client.sessionId !== this.state.lobbyOwnerId) return;
+
+      const targetPlayers = message?.targetPlayers;
+      if (
+        typeof targetPlayers !== "number" ||
+        !Number.isInteger(targetPlayers) ||
+        targetPlayers < 1 ||
+        targetPlayers > 4 ||
+        targetPlayers < this.state.players.size
+      ) {
+        return;
+      }
+
+      this.state.targetPlayers = targetPlayers;
+      this.refreshRoomAvailability();
+      this.tryStartRound();
+    });
+
+    this.onMessage("lobby:setReady", (client, message: SetReadyMessage) => {
+      if (this.state.phase !== "title" || typeof message?.ready !== "boolean") return;
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+
+      player.ready = message.ready;
+      this.tryStartRound();
+    });
+
+    this.onMessage("round:returnToTitle", (client) => {
+      if (
+        (this.state.phase !== "won" && this.state.phase !== "lost") ||
+        !this.state.players.has(client.sessionId)
+      ) {
+        return;
+      }
+
+      this.state.phase = "title";
+      this.state.players.forEach((player) => {
+        player.ready = false;
+      });
+      this.normalizeLobbyOwner();
+      this.refreshRoomAvailability();
+    });
+
+    this.refreshRoomAvailability();
     this.setSimulationInterval((deltaMs) => this.update(deltaMs), 1000 / TICK_RATE);
+  }
+
+  private normalizeLobbyOwner() {
+    if (this.state.phase !== "title") return;
+    if (this.state.lobbyOwnerId && this.state.players.has(this.state.lobbyOwnerId)) return;
+
+    this.state.lobbyOwnerId =
+      this.joinOrder.find((sessionId) => this.state.players.has(sessionId)) ?? "";
+  }
+
+  private refreshRoomAvailability() {
+    if (
+      this.state.phase === "title" &&
+      this.state.players.size < this.state.targetPlayers
+    ) {
+      void this.unlock();
+      return;
+    }
+    void this.lock();
+  }
+
+  private tryStartRound() {
+    if (
+      this.state.phase !== "title" ||
+      !canStartRound(this.state.players.values(), this.state.targetPlayers)
+    ) {
+      return;
+    }
+
+    this.resetRound();
+    this.state.phase = "playing";
+    this.refreshRoomAvailability();
+  }
+
+  private resetRound() {
+    const activeOrder = this.joinOrder.filter((sessionId) =>
+      this.state.players.has(sessionId),
+    );
+
+    activeOrder.forEach((sessionId, index) => {
+      const player = this.state.players.get(sessionId);
+      if (!player) return;
+      const spawn = SPAWN_POINTS[index % SPAWN_POINTS.length];
+      player.x = spawn.x;
+      player.y = spawn.y;
+      player.vx = 0;
+      player.vy = 0;
+      player.grounded = true;
+      player.facing = 1;
+      player.color = PLAYER_COLORS[index % PLAYER_COLORS.length];
+      player.lives = DUCK_MAX_LIVES;
+      player.alive = true;
+      player.spawnIndex = index;
+      player.invulnRemaining = 0;
+      player.featherCooldown = 0;
+      player.ready = false;
+      this.inputs.set(sessionId, {
+        left: false,
+        right: false,
+        jump: false,
+        shoot: false,
+      });
+      this.prevJump.set(sessionId, false);
+      this.prevShoot.set(sessionId, false);
+    });
+
+    this.simTime = 0;
+    this.featherCounter = 0;
+    this.bossProjectileCounter = 0;
+    this.state.feathers.clear();
+    this.state.bossProjectiles.clear();
+    this.state.enemies.clear();
+    this.state.nuggets.clear();
+    this.spawnEnemies();
+    this.spawnBoss();
+    this.spawnNuggets();
   }
 
   private spawnEnemies() {
@@ -216,7 +360,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   onJoin(client: Client, options: JoinOptions) {
-    const index = this.state.players.size;
+    const index = this.joinOrder.length;
     const spawn = SPAWN_POINTS[index % SPAWN_POINTS.length];
 
     const player = new Player();
@@ -229,38 +373,80 @@ export class GameRoom extends Room<GameState> {
     player.spawnIndex = index;
     player.invulnRemaining = 0;
     player.featherCooldown = 0;
+    player.ready = false;
 
     this.state.players.set(client.sessionId, player);
+    if (!this.joinOrder.includes(client.sessionId)) {
+      this.joinOrder.push(client.sessionId);
+    }
     this.inputs.set(client.sessionId, { left: false, right: false, jump: false, shoot: false });
     this.prevJump.set(client.sessionId, false);
     this.prevShoot.set(client.sessionId, false);
+    if (!this.state.lobbyOwnerId) {
+      this.state.lobbyOwnerId = client.sessionId;
+    }
+    this.refreshRoomAvailability();
+    this.tryStartRound();
 
     console.log(`${player.name} joined (${client.sessionId}) — ${this.state.players.size}/${this.maxClients}`);
   }
 
   onLeave(client: Client) {
     this.state.players.delete(client.sessionId);
+    this.joinOrder = this.joinOrder.filter((sessionId) => sessionId !== client.sessionId);
     this.inputs.delete(client.sessionId);
     this.prevJump.delete(client.sessionId);
     this.prevShoot.delete(client.sessionId);
+
+    if (this.state.phase === "title") {
+      this.normalizeLobbyOwner();
+      this.refreshRoomAvailability();
+      this.tryStartRound();
+    } else if (
+      this.state.phase === "playing" &&
+      isTeamWiped(this.state.players.values())
+    ) {
+      this.state.phase = "lost";
+      this.refreshRoomAvailability();
+    }
   }
 
   private update(deltaMs: number) {
+    if (!isPlayingPhase(this.state.phase)) return;
+
     const dt = Math.min(deltaMs, 50) / 1000;
     this.simTime += dt;
 
     this.tickCooldowns(dt);
     this.updateEnemies(dt);
+    if (!isPlayingPhase(this.state.phase)) return;
     if (this.state.boss.alive) {
       this.updateBoss(dt);
     }
+    if (!isPlayingPhase(this.state.phase)) return;
     this.updateBossProjectiles(dt);
+    if (!isPlayingPhase(this.state.phase)) return;
     this.updatePlayers(dt);
     this.processShooting(dt);
     this.updateFeathers(dt);
+    if (!isPlayingPhase(this.state.phase)) return;
     this.checkPlayerEnemyCollisions();
+    if (!isPlayingPhase(this.state.phase)) return;
     this.checkPlayerBossCollisions();
+    if (!isPlayingPhase(this.state.phase)) return;
     this.checkNuggetPickups();
+  }
+
+  private finishIfWon(): boolean {
+    if (
+      this.state.phase === "playing" &&
+      isRoundWon(this.state.boss.alive, this.state.enemies.values())
+    ) {
+      this.state.phase = "won";
+      this.refreshRoomAvailability();
+      return true;
+    }
+    return false;
   }
 
   private tickCooldowns(dt: number) {
@@ -383,6 +569,7 @@ export class GameRoom extends Room<GameState> {
 
   private applyBossShockwave() {
     this.state.players.forEach((player) => {
+      if (!isPlayingPhase(this.state.phase)) return;
       if (
         player.alive &&
         aabbOverlap(
@@ -424,12 +611,14 @@ export class GameRoom extends Room<GameState> {
     const halfSize = BOSS_PROJECTILE_SIZE / 2;
 
     this.state.bossProjectiles.forEach((projectile, id) => {
+      if (!isPlayingPhase(this.state.phase)) return;
       projectile.x += projectile.vx * dt;
       projectile.y += projectile.vy * dt;
 
       let hitPlayer = false;
       this.state.players.forEach((player) => {
         if (
+          !isPlayingPhase(this.state.phase) ||
           hitPlayer ||
           !player.alive ||
           !aabbOverlap(
@@ -606,6 +795,7 @@ export class GameRoom extends Room<GameState> {
     const toRemove: string[] = [];
 
     this.state.feathers.forEach((feather, id) => {
+      if (!isPlayingPhase(this.state.phase)) return;
       feather.x += feather.vx * dt;
 
       if (
@@ -651,6 +841,7 @@ export class GameRoom extends Room<GameState> {
             boss.action = "recovery";
             boss.attackFrame = 0;
             boss.waiting = true;
+            this.finishIfWon();
           }
           toRemove.push(id);
           return;
@@ -658,12 +849,19 @@ export class GameRoom extends Room<GameState> {
       }
 
       this.state.enemies.forEach((enemy) => {
-        if (!enemy.alive || toRemove.includes(id)) return;
+        if (
+          !isPlayingPhase(this.state.phase) ||
+          !enemy.alive ||
+          toRemove.includes(id)
+        ) {
+          return;
+        }
         const { w, h } = enemySize(enemy.kind);
         if (aabbOverlap(feather.x, feather.y, FEATHER_WIDTH, FEATHER_HEIGHT, enemy.x, enemy.y, w, h)) {
           enemy.featherHits--;
           if (enemy.featherHits <= 0) {
             enemy.alive = false;
+            this.finishIfWon();
           }
           if (!toRemove.includes(id)) toRemove.push(id);
         }
@@ -683,7 +881,13 @@ export class GameRoom extends Room<GameState> {
   }
 
   private applyContactDamage(player: Player) {
-    if (!player.alive || player.invulnRemaining > 0) return;
+    if (
+      !isPlayingPhase(this.state.phase) ||
+      !player.alive ||
+      player.invulnRemaining > 0
+    ) {
+      return;
+    }
 
     player.lives--;
     player.invulnRemaining = INVULNERABLE_TIME;
@@ -692,15 +896,19 @@ export class GameRoom extends Room<GameState> {
       player.lives = 0;
       player.alive = false;
       this.respawnAtSpawn(player);
+      if (isTeamWiped(this.state.players.values())) {
+        this.state.phase = "lost";
+        this.refreshRoomAvailability();
+      }
     }
   }
 
   private checkPlayerEnemyCollisions() {
     this.state.players.forEach((player) => {
-      if (!player.alive) return;
+      if (!isPlayingPhase(this.state.phase) || !player.alive) return;
 
       this.state.enemies.forEach((enemy) => {
-        if (!enemy.alive) return;
+        if (!isPlayingPhase(this.state.phase) || !enemy.alive) return;
 
         const { w, h } = enemySize(enemy.kind);
         if (!aabbOverlap(player.x, player.y, PLAYER_WIDTH, PLAYER_HEIGHT, enemy.x, enemy.y, w, h)) {
@@ -711,6 +919,7 @@ export class GameRoom extends Room<GameState> {
           enemy.alive = false;
           player.vy = JUMP_VELOCITY * 0.35;
           player.grounded = false;
+          this.finishIfWon();
           return;
         }
 
@@ -724,7 +933,7 @@ export class GameRoom extends Room<GameState> {
 
     const boss = this.state.boss;
     this.state.players.forEach((player) => {
-      if (!player.alive) return;
+      if (!isPlayingPhase(this.state.phase) || !player.alive) return;
 
       if (
         !aabbOverlap(
@@ -759,11 +968,18 @@ export class GameRoom extends Room<GameState> {
 
   private checkNuggetPickups() {
     this.state.nuggets.forEach((nugget) => {
-      if (!nugget.active) return;
+      if (!isPlayingPhase(this.state.phase) || !nugget.active) return;
 
       let consumed = false;
       this.state.players.forEach((player, sessionId) => {
-        if (consumed || !nugget.active || !player.alive) return;
+        if (
+          !isPlayingPhase(this.state.phase) ||
+          consumed ||
+          !nugget.active ||
+          !player.alive
+        ) {
+          return;
+        }
 
         const dx = player.x - nugget.x;
         const dy = player.y - nugget.y;

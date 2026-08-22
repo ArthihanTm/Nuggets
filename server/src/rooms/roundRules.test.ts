@@ -16,6 +16,7 @@ test("round starts only at the exact target count when every player is ready", (
   const unreadyPlayer: RoundPlayer = { ready: false, alive: true };
 
   assert.equal(canStartRound([], 2), false);
+  assert.equal(canStartRound([readyPlayer], 1), true);
   assert.equal(canStartRound([readyPlayer], 2), false);
   assert.equal(canStartRound([readyPlayer, unreadyPlayer], 2), false);
   assert.equal(canStartRound([readyPlayer, readyPlayer], 2), true);

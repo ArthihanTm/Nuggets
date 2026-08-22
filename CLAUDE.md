@@ -1,6 +1,6 @@
 # Nuggets — Projektkontext
 
-Ein 2–4-Spieler Multiplayer-Pixel-Platformer im Game-Jam-Scope. **Aktueller Stand:** ein lauffähiges Phaser-/Colyseus-Grundgerüst mit serverseitiger Spielerphysik, Multiplayer-Sync, Raben-/Ameisen-Patrouillen und Boss-Visuals im selben Level. Kampfsystem (Federn, Stomp-Kills, individuelle Leben, Nuggets), Boss-Arena und Siegbedingung sind im Design finalisiert (siehe unten), aber noch nicht implementiert.
+Ein 1–4-Spieler Multiplayer-Pixel-Platformer im Game-Jam-Scope. **Aktueller Stand:** ein lauffähiges Phaser-/Colyseus-Grundgerüst mit serverseitiger Spielerphysik, Multiplayer-Sync, Raben-/Ameisen-Patrouillen und Boss-Visuals im selben Level. Kampfsystem (Federn, Stomp-Kills, individuelle Leben, Nuggets), Boss-Arena und Siegbedingung sind im Design finalisiert (siehe unten), aber noch nicht implementiert.
 
 ## Wichtigste Regel
 
@@ -117,7 +117,7 @@ Rabe- und Ameisen-Patrouille sind serverseitig implementiert (inkl. Sprites, auc
 
 ## Ausdrücklich NICHT bauen
 
-Diese Punkte lösen Probleme, die dieses Projekt bei 2–4 Spielern und einer einzigen Session nicht hat. Nicht von dir aus ergänzen, auch wenn es "sauberer" wäre:
+Diese Punkte lösen Probleme, die dieses Projekt bei 1–4 Spielern und einer einzigen Session nicht hat. Nicht von dir aus ergänzen, auch wenn es "sauberer" wäre:
 
 - Client-Prediction & Reconciliation, Lag-Kompensation, State-Recovery bei Reconnect
 - WebRTC/P2P oder Socket.io (Colyseus reicht)

@@ -70,6 +70,7 @@ const enemy = (alive: boolean): RoundEnemy => ({ alive });
 
 test("start requires exact target count and every player ready", () => {
   assert.equal(canStartRound([], 2), false);
+  assert.equal(canStartRound([player(true)], 1), true);
   assert.equal(canStartRound([player(true)], 2), false);
   assert.equal(canStartRound([player(true), player(false)], 2), false);
   assert.equal(canStartRound([player(true), player(true)], 2), true);
@@ -168,7 +169,7 @@ In `GameRoom.onCreate()` zunächst auf die noch nicht vorhandenen Felder referen
 
 ```ts
 this.state.phase = "title";
-this.state.targetPlayers = 2;
+this.state.targetPlayers = 1;
 this.state.lobbyOwnerId = "";
 ```
 
@@ -194,7 +195,7 @@ In `GameState` vor den Maps:
 
 ```ts
 @type("string") phase: RoundPhase = "title";
-@type("number") targetPlayers = 2;
+@type("number") targetPlayers = 1;
 @type("string") lobbyOwnerId = "";
 ```
 
@@ -314,7 +315,7 @@ this.onMessage("lobby:setTarget", (client, message: SetTargetMessage) => {
   if (
     typeof targetPlayers !== "number" ||
     !Number.isInteger(targetPlayers) ||
-    targetPlayers < 2 ||
+    targetPlayers < 1 ||
     targetPlayers > 4 ||
     targetPlayers < this.state.players.size
   ) {
@@ -670,6 +671,7 @@ Ersetze nur den Inhalt von `#overlay` durch:
       <fieldset id="target-fieldset">
         <legend>Zielspielerzahl</legend>
         <div id="target-options">
+          <button type="button" data-target-players="1">1</button>
           <button type="button" data-target-players="2">2</button>
           <button type="button" data-target-players="3">3</button>
           <button type="button" data-target-players="4">4</button>
@@ -725,7 +727,7 @@ input, button {
 }
 button { background: #f2c14e; color: #1a1a2e; font-weight: 700; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
-#target-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+#target-options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 #target-options button[aria-pressed="true"] { outline: 3px solid #e8792b; }
 #player-list { margin: 0; padding: 0; list-style: none; }
 #player-list li { display: flex; justify-content: space-between; padding: 5px 0; }
@@ -1333,7 +1335,7 @@ Nach dem Join beider Clients:
 
 ```js
 assert(playerA.room.state.phase === "title", "room should start in title");
-assert(playerA.room.state.targetPlayers === 2, "default target should be two");
+assert(playerA.room.state.targetPlayers === 1, "default target should be one");
 assert(
   playerA.room.state.lobbyOwnerId === playerA.room.sessionId,
   "first player should own the lobby",
@@ -1341,14 +1343,18 @@ assert(
 
 playerB.room.send("lobby:setTarget", { targetPlayers: 4 });
 await sleep(150);
-assert(playerA.room.state.targetPlayers === 2, "non-owner target change must be ignored");
+assert(playerA.room.state.targetPlayers === 1, "non-owner target change must be ignored");
 
 playerA.room.send("lobby:setTarget", { targetPlayers: 1 });
 await sleep(150);
 assert(
-  playerA.room.state.targetPlayers === 2,
-  "target below 2 and below current player count must be ignored",
+  playerA.room.state.targetPlayers === 1,
+  "target below current player count must be ignored",
 );
+
+playerA.room.send("lobby:setTarget", { targetPlayers: 2 });
+await sleep(150);
+assert(playerA.room.state.targetPlayers === 2, "owner can set target to current player count");
 
 const frozenInTitle = snapshotGameplay(playerA.room, playerA.room.sessionId);
 playerA.room.send("input", { left: false, right: true, jump: true, shoot: true });

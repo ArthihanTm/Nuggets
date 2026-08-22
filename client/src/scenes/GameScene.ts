@@ -185,6 +185,7 @@ export class GameScene extends Phaser.Scene {
     Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle
   >();
   private nuggetVisuals = new Map<string, Phaser.GameObjects.Image>();
+  private nuggetSubscriptions = new Map<string, Array<() => void>>();
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: {
     W: Phaser.Input.Keyboard.Key;
@@ -219,9 +220,14 @@ export class GameScene extends Phaser.Scene {
   private hasBossDefeatSprite = false;
   private bossDefeatShown = false;
   private bossDefeatSprite: Phaser.GameObjects.Sprite | null = null;
+  private defeatEffects = new Set<Phaser.GameObjects.GameObject>();
   private featherScale = 1;
   private nuggetScale = 1;
   private playerDefeatScale = SPRITE_SCALE;
+  private currentPhase: "title" | "playing" | "won" | "lost" = "title";
+  private phaseSequence = 0;
+  private endscreenTimer: Phaser.Time.TimerEvent | null = null;
+  private cleanupCallbacks: Array<() => void> = [];
 
   constructor() {
     super("Game");
@@ -271,6 +277,7 @@ export class GameScene extends Phaser.Scene {
     this.setupCombatAssets();
     this.drawBackground();
     this.drawLevel();
+    this.bindPhaseState();
     this.bindRoomState();
     this.bindEnemyState();
     this.bindFeatherState();
@@ -279,6 +286,7 @@ export class GameScene extends Phaser.Scene {
     this.createBossVisual();
     this.bindBossState();
     this.bindInput();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
 
     if (!this.room.state.boss.alive) {
       this.showBossDefeat();
@@ -295,10 +303,121 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(1000);
 
-    this.room.onLeave(() => {
+    this.trackSubscription(this.room.onLeave(() => {
       this.connected = false;
       this.statusText.setText("Verbindung zum Server verloren.");
+    }));
+  }
+
+  private trackSubscription(value: unknown) {
+    if (typeof value === "function") {
+      this.cleanupCallbacks.push(value as () => void);
+    }
+  }
+
+  private bindPhaseState() {
+    const $ = getStateCallbacks(this.room);
+    this.trackSubscription(
+      $(this.room.state).listen("phase", (phase: typeof this.currentPhase) => {
+        this.handlePhaseChange(phase);
+      }),
+    );
+    this.handlePhaseChange((this.room.state.phase ?? "title") as typeof this.currentPhase);
+  }
+
+  private handlePhaseChange(phase: typeof this.currentPhase) {
+    this.currentPhase = phase;
+    const sequence = ++this.phaseSequence;
+    this.endscreenTimer?.remove(false);
+    this.endscreenTimer = null;
+
+    if (phase === "playing") {
+      this.resetRoundVisuals();
+      this.dispatchPhaseChange(phase);
+      return;
+    }
+
+    this.stopLocalInput();
+    if (phase === "title") {
+      this.dispatchPhaseChange(phase);
+      return;
+    }
+
+    const delay =
+      phase === "lost"
+        ? this.hasPlayerDefeatSprite && this.anims.exists("player-defeat")
+          ? (PLAYER_DEFEAT_FRAME_COUNT / PLAYER_DEFEAT_FRAME_RATE) * 1000
+          : 0
+        : this.hasBossDefeatSprite && this.anims.exists("boss-defeat")
+          ? (BOSS_DEFEAT_FRAME_COUNT / BOSS_DEFEAT_FRAME_RATE) * 1000
+          : 0;
+
+    if (delay === 0) {
+      this.dispatchPhaseChange(phase);
+      return;
+    }
+
+    this.endscreenTimer = this.time.delayedCall(delay, () => {
+      this.endscreenTimer = null;
+      if (
+        sequence === this.phaseSequence &&
+        this.currentPhase === phase &&
+        this.room.state.phase === phase
+      ) {
+        this.dispatchPhaseChange(phase);
+      }
     });
+  }
+
+  private dispatchPhaseChange(phase: typeof this.currentPhase) {
+    window.dispatchEvent(
+      new CustomEvent("nuggets:phasechange", { detail: { phase } }),
+    );
+  }
+
+  private stopLocalInput() {
+    this.inputLeft = false;
+    this.inputRight = false;
+    this.inputJump = false;
+    this.inputShoot = false;
+  }
+
+  private resetRoundVisuals() {
+    this.stopLocalInput();
+    for (const effect of this.defeatEffects) effect.destroy();
+    this.defeatEffects.clear();
+    this.bossDefeatSprite?.destroy();
+    this.bossDefeatSprite = null;
+    this.bossDefeatShown = false;
+    if (this.bossVisual) {
+      this.bossVisual.root.setVisible(true);
+      this.updateBossVisual(this.bossVisual, this.room.state.boss);
+    }
+    this.visuals.forEach((entry) => {
+      entry.showingDefeat = false;
+      entry.defeatAnimStarted = false;
+      entry.body.setAlpha(1);
+      if (entry.isSprite) {
+        const sprite = entry.body as Phaser.GameObjects.Sprite;
+        sprite.anims.stop();
+        sprite.setTexture(SPRITE_KEY, 0);
+        sprite.setScale(SPRITE_SCALE);
+        entry.currentAnim = "idle";
+        if (this.anims.exists("idle")) sprite.play("idle");
+      }
+    });
+  }
+
+  private cleanup() {
+    this.endscreenTimer?.remove(false);
+    this.endscreenTimer = null;
+    for (const subscriptions of this.nuggetSubscriptions.values()) {
+      for (const unsubscribe of subscriptions) unsubscribe();
+    }
+    this.nuggetSubscriptions.clear();
+    for (const cleanup of this.cleanupCallbacks.splice(0)) cleanup();
+    for (const effect of this.defeatEffects) effect.destroy();
+    this.defeatEffects.clear();
   }
 
   private setupPlayerAnimations() {
@@ -865,17 +984,21 @@ export class GameScene extends Phaser.Scene {
       });
     };
 
-    $(this.room.state).players.onAdd((player, sessionId: string) => {
-      addPlayerVisual(player, sessionId);
-    });
+    this.trackSubscription(
+      $(this.room.state).players.onAdd((player, sessionId: string) => {
+        addPlayerVisual(player, sessionId);
+      }),
+    );
 
-    $(this.room.state).players.onRemove((_player, sessionId: string) => {
-      const entry = this.visuals.get(sessionId);
-      if (!entry) return;
-      entry.body.destroy();
-      entry.label.destroy();
-      this.visuals.delete(sessionId);
-    });
+    this.trackSubscription(
+      $(this.room.state).players.onRemove((_player, sessionId: string) => {
+        const entry = this.visuals.get(sessionId);
+        if (!entry) return;
+        entry.body.destroy();
+        entry.label.destroy();
+        this.visuals.delete(sessionId);
+      }),
+    );
 
     this.room.state.players.forEach((player: any, sessionId: string) => {
       addPlayerVisual(player, sessionId);
@@ -926,16 +1049,20 @@ export class GameScene extends Phaser.Scene {
       this.enemyVisuals.set(enemyId, { body, isSprite, kind: enemy.kind, defeatShown: false });
     };
 
-    $(this.room.state).enemies.onAdd((enemy, enemyId: string) => {
-      addEnemyVisual(enemy, enemyId);
-    });
+    this.trackSubscription(
+      $(this.room.state).enemies.onAdd((enemy, enemyId: string) => {
+        addEnemyVisual(enemy, enemyId);
+      }),
+    );
 
-    $(this.room.state).enemies.onRemove((_enemy, enemyId: string) => {
-      const entry = this.enemyVisuals.get(enemyId);
-      if (!entry) return;
-      entry.body.destroy();
-      this.enemyVisuals.delete(enemyId);
-    });
+    this.trackSubscription(
+      $(this.room.state).enemies.onRemove((_enemy, enemyId: string) => {
+        const entry = this.enemyVisuals.get(enemyId);
+        if (!entry) return;
+        entry.body.destroy();
+        this.enemyVisuals.delete(enemyId);
+      }),
+    );
 
     this.room.state.enemies.forEach((enemy: any, enemyId: string) => {
       addEnemyVisual(enemy, enemyId);
@@ -967,6 +1094,7 @@ export class GameScene extends Phaser.Scene {
     if (!hasDefeat || !this.anims.exists(animKey)) return;
 
     const sprite = this.add.sprite(x, y, defeatKey, 0);
+    this.defeatEffects.add(sprite);
     sprite.setOrigin(0.5, isAnt ? 1 : 0.55);
     sprite.setScale(defeatScale);
     sprite.setFlipX(!facingRight);
@@ -985,7 +1113,10 @@ export class GameScene extends Phaser.Scene {
 
     const holdMs = isAnt ? DEFEAT_HOLD_MS : RAVEN_DEFEAT_HOLD_MS;
     sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
-      this.time.delayedCall(holdMs, () => sprite.destroy());
+      this.time.delayedCall(holdMs, () => {
+        this.defeatEffects.delete(sprite);
+        sprite.destroy();
+      });
     });
   }
 
@@ -1009,16 +1140,20 @@ export class GameScene extends Phaser.Scene {
       this.featherVisuals.set(featherId, sprite);
     };
 
-    $(this.room.state).feathers.onAdd((feather, featherId: string) => {
-      addFeatherVisual(feather, featherId);
-    });
+    this.trackSubscription(
+      $(this.room.state).feathers.onAdd((feather, featherId: string) => {
+        addFeatherVisual(feather, featherId);
+      }),
+    );
 
-    $(this.room.state).feathers.onRemove((_feather, featherId: string) => {
-      const sprite = this.featherVisuals.get(featherId);
-      if (!sprite) return;
-      sprite.destroy();
-      this.featherVisuals.delete(featherId);
-    });
+    this.trackSubscription(
+      $(this.room.state).feathers.onRemove((_feather, featherId: string) => {
+        const sprite = this.featherVisuals.get(featherId);
+        if (!sprite) return;
+        sprite.destroy();
+        this.featherVisuals.delete(featherId);
+      }),
+    );
 
     this.room.state.feathers.forEach((feather: any, featherId: string) => {
       addFeatherVisual(feather, featherId);
@@ -1053,16 +1188,20 @@ export class GameScene extends Phaser.Scene {
       this.bossProjectileVisuals.set(projectileId, visual);
     };
 
-    $(this.room.state).bossProjectiles.onAdd((projectile, projectileId: string) => {
-      addBossProjectileVisual(projectile, projectileId);
-    });
+    this.trackSubscription(
+      $(this.room.state).bossProjectiles.onAdd((projectile, projectileId: string) => {
+        addBossProjectileVisual(projectile, projectileId);
+      }),
+    );
 
-    $(this.room.state).bossProjectiles.onRemove((_projectile, projectileId: string) => {
-      const visual = this.bossProjectileVisuals.get(projectileId);
-      if (!visual) return;
-      visual.destroy();
-      this.bossProjectileVisuals.delete(projectileId);
-    });
+    this.trackSubscription(
+      $(this.room.state).bossProjectiles.onRemove((_projectile, projectileId: string) => {
+        const visual = this.bossProjectileVisuals.get(projectileId);
+        if (!visual) return;
+        visual.destroy();
+        this.bossProjectileVisuals.delete(projectileId);
+      }),
+    );
 
     this.room.state.bossProjectiles.forEach((projectile: any, projectileId: string) => {
       addBossProjectileVisual(projectile, projectileId);
@@ -1088,21 +1227,32 @@ export class GameScene extends Phaser.Scene {
       sprite.setVisible(nugget.active);
       this.nuggetVisuals.set(nuggetId, sprite);
 
-      $(nugget).listen("active", (active: boolean) => {
+      const unsubscribe = $(nugget).listen("active", (active: boolean) => {
         sprite.setVisible(active);
       });
+      if (typeof unsubscribe === "function") {
+        this.nuggetSubscriptions.set(nuggetId, [unsubscribe]);
+      }
     };
 
-    $(this.room.state).nuggets.onAdd((nugget, nuggetId: string) => {
-      addNuggetVisual(nugget, nuggetId);
-    });
+    this.trackSubscription(
+      $(this.room.state).nuggets.onAdd((nugget, nuggetId: string) => {
+        addNuggetVisual(nugget, nuggetId);
+      }),
+    );
 
-    $(this.room.state).nuggets.onRemove((_nugget, nuggetId: string) => {
-      const sprite = this.nuggetVisuals.get(nuggetId);
-      if (!sprite) return;
-      sprite.destroy();
-      this.nuggetVisuals.delete(nuggetId);
-    });
+    this.trackSubscription(
+      $(this.room.state).nuggets.onRemove((_nugget, nuggetId: string) => {
+        const subscriptions = this.nuggetSubscriptions.get(nuggetId) ?? [];
+        for (const unsubscribe of subscriptions) unsubscribe();
+        this.nuggetSubscriptions.delete(nuggetId);
+
+        const sprite = this.nuggetVisuals.get(nuggetId);
+        if (!sprite) return;
+        sprite.destroy();
+        this.nuggetVisuals.delete(nuggetId);
+      }),
+    );
 
     this.room.state.nuggets.forEach((nugget: any, nuggetId: string) => {
       addNuggetVisual(nugget, nuggetId);
@@ -1116,14 +1266,16 @@ export class GameScene extends Phaser.Scene {
       this.updateBossVisual(this.bossVisual, this.room.state.boss);
     };
 
-    $(this.room.state).boss.listen("waiting", syncBossVisual);
-    $(this.room.state).boss.listen("facing", syncBossVisual);
-    $(this.room.state).boss.listen("action", syncBossVisual);
-    $(this.room.state).boss.listen("attackFrame", syncBossVisual);
-    $(this.room.state).boss.listen("alive", (alive: boolean) => {
-      if (!alive) this.showBossDefeat();
-      else syncBossVisual();
-    });
+    this.trackSubscription($(this.room.state).boss.listen("waiting", syncBossVisual));
+    this.trackSubscription($(this.room.state).boss.listen("facing", syncBossVisual));
+    this.trackSubscription($(this.room.state).boss.listen("action", syncBossVisual));
+    this.trackSubscription($(this.room.state).boss.listen("attackFrame", syncBossVisual));
+    this.trackSubscription(
+      $(this.room.state).boss.listen("alive", (alive: boolean) => {
+        if (!alive) this.showBossDefeat();
+        else syncBossVisual();
+      }),
+    );
   }
 
   private showBossDefeat() {
@@ -1250,6 +1402,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (this.currentPhase !== "playing") return;
       if (event.code === "ArrowLeft" || event.code === "KeyA") this.inputLeft = true;
       if (event.code === "ArrowRight" || event.code === "KeyD") this.inputRight = true;
       if (event.code === "ArrowUp" || event.code === "KeyW" || event.code === "Space") {
@@ -1275,15 +1428,23 @@ export class GameScene extends Phaser.Scene {
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    this.cleanupCallbacks.push(() => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     });
 
     const canvas = this.game.canvas;
+    const focusCanvas = () => canvas.focus();
     canvas.setAttribute("tabindex", "0");
     canvas.style.outline = "none";
-    canvas.addEventListener("pointerdown", () => canvas.focus());
+    canvas.addEventListener("pointerdown", focusCanvas);
+    this.cleanupCallbacks.push(() => {
+      canvas.removeEventListener("pointerdown", focusCanvas);
+      keyboard?.removeCapture([
+        "W", "A", "S", "D", "SPACE", "F", "ENTER",
+        "UP", "DOWN", "LEFT", "RIGHT",
+      ]);
+    });
     canvas.focus();
   }
 
@@ -1299,7 +1460,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private sendInput() {
-    if (!this.connected) return;
+    if (!this.connected || this.currentPhase !== "playing") return;
 
     const left = this.inputLeft || this.cursors?.left?.isDown || this.keys?.A?.isDown || false;
     const right = this.inputRight || this.cursors?.right?.isDown || this.keys?.D?.isDown || false;

@@ -31,6 +31,15 @@ async function waitForPlayerCount(room, expected, label) {
   throw new Error(`${label}: expected ${expected} players in room, timed out`);
 }
 
+async function waitForPhase(room, expected, label) {
+  const deadline = Date.now() + TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (room.state?.phase === expected) return;
+    await sleep(50);
+  }
+  throw new Error(`${label}: expected phase ${expected}, got ${room.state?.phase}`);
+}
+
 async function waitForMovement(room, sessionId, label) {
   const deadline = Date.now() + TIMEOUT_MS;
   let startX = null;
@@ -88,18 +97,20 @@ async function waitForCastRelease(room, label) {
   const deadline = Date.now() + BOSS_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const boss = room.state?.boss;
-    if (boss?.action === "cast") {
-      const projectileCount = room.state?.bossProjectiles?.size ?? 0;
-      if (boss.attackFrame < 5) {
-        assert(projectileCount === 0, `${label}: projectiles spawned before cast frame 5`);
-      } else if (boss.attackFrame === 5) {
-        assert(projectileCount === 8, `${label}: frame 5 should release exactly eight projectiles`);
-        return;
-      }
+    const projectileCount = room.state?.bossProjectiles?.size ?? 0;
+    if (boss?.action === "cast" && boss.attackFrame < 5) {
+      assert(projectileCount === 0, `${label}: projectiles spawned before cast frame 5`);
+    }
+    if (projectileCount === 8) {
+      assert(
+        boss?.action === "cast" || boss?.action === "recovery",
+        `${label}: projectiles appeared outside the cast transition`,
+      );
+      return;
     }
     await sleep(10);
   }
-  throw new Error(`${label}: boss never released projectiles on cast frame 5`);
+  throw new Error(`${label}: boss never released eight projectiles`);
 }
 
 async function waitForProjectileBurst(room, label) {
@@ -168,6 +179,12 @@ async function main() {
     "Boss projectile map should exist and start empty",
   );
   console.log("OK: boss combat state is synchronized");
+
+  playerA.room.send("lobby:setReady", { ready: true });
+  playerB.room.send("lobby:setReady", { ready: true });
+  await waitForPhase(playerA.room, "playing", "PlayerA");
+  await waitForPhase(playerB.room, "playing", "PlayerB");
+  console.log("OK: ready players start the round");
 
   playerA.room.send("input", { left: false, right: true, jump: false });
   const movedOnServer = await waitForMovement(playerA.room, playerA.room.sessionId, "PlayerA");

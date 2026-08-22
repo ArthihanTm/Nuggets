@@ -70,7 +70,7 @@ export class Nugget extends Schema {
 
 export class GameState extends Schema {
   @type("string") phase: RoundPhase = "title";
-  @type("number") targetPlayers = 2;
+  @type("number") targetPlayers = 1;
   @type("string") lobbyOwnerId = "";
   @type({ map: Player }) players = new MapSchema<Player>();
   @type({ map: Enemy }) enemies = new MapSchema<Enemy>();

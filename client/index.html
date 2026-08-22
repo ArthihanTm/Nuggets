@@ -6,89 +6,68 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23ffca28%22/><text x=%2216%22 y=%2222%22 font-size=%2216%22 text-anchor=%22middle%22>🎮</text></svg>" />
     <title>Nuggets</title>
     <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        overflow: hidden;
-        background: #1a1a2e;
-        font-family: "Segoe UI", system-ui, sans-serif;
-        color: #f0f0f0;
-      }
-      #app {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      #game-container {
-        line-height: 0;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-      }
-      #overlay {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(10, 10, 20, 0.85);
-        z-index: 10;
-      }
-      #join-form {
-        background: #24243e;
-        padding: 32px 40px;
-        border-radius: 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        min-width: 280px;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-      }
-      #join-form h1 {
-        margin: 0 0 4px 0;
-        font-size: 22px;
-      }
-      #join-form input {
-        padding: 10px 12px;
-        border-radius: 6px;
-        border: 1px solid #444;
-        background: #14142a;
-        color: #fff;
-        font-size: 15px;
-      }
-      #join-form button {
-        padding: 10px 12px;
-        border-radius: 6px;
-        border: none;
-        background: #ffca28;
-        color: #1a1a2e;
-        font-weight: bold;
-        font-size: 15px;
-        cursor: pointer;
-      }
-      #join-form button:disabled {
-        opacity: 0.6;
-        cursor: default;
-      }
-      #status {
-        min-height: 18px;
-        font-size: 13px;
-        color: #ffb4b4;
-      }
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1a2e; color: #fff7d6; font-family: monospace; }
+      #app { position: relative; width: 100%; height: 100%; display: grid; place-items: center; }
+      #game-container { line-height: 0; box-shadow: 0 10px 40px #0009; }
+      .overlay { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; background: #101426dc; padding: 20px; }
+      .overlay[hidden], [hidden] { display: none !important; }
+      .panel { width: min(440px, 100%); padding: 24px; border: 4px solid #5c3a28; border-radius: 2px; background: #24243e; box-shadow: 8px 8px 0 #111525; }
+      h1, h2, p { margin-top: 0; }
+      h1 { color: #f2c14e; font-size: 34px; text-align: center; text-shadow: 3px 3px 0 #e8792b; }
+      h2 { color: #f2c14e; }
+      form, .stack { display: grid; gap: 12px; }
+      input, button { min-height: 42px; border: 3px solid #5c3a28; border-radius: 0; font: bold 15px monospace; }
+      input { padding: 8px 10px; background: #14142a; color: white; }
+      button { padding: 8px 12px; background: #f2c14e; color: #1a1a2e; cursor: pointer; box-shadow: 3px 3px 0 #e8792b; }
+      button:disabled { opacity: .45; cursor: default; box-shadow: none; }
+      .target-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      .target-button.selected { outline: 3px solid #fff7d6; background: #e8792b; }
+      #player-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+      #player-list li { display: flex; justify-content: space-between; padding: 8px; background: #14142a; border-left: 4px solid #4a4e69; }
+      #player-list li.ready { border-left-color: #8fbf7f; }
+      #status, #lobby-status { min-height: 18px; margin: 0; color: #ffcf9f; }
+      .controls { margin: 4px 0 0; color: #9ecbe0; font-size: 13px; line-height: 1.5; }
+      #end-overlay.won { background: #5c4319cc; }
+      #end-overlay.lost { background: #100d1be8; }
+      #end-overlay .panel { text-align: center; }
     </style>
   </head>
   <body>
     <div id="app">
       <div id="game-container"></div>
-      <div id="overlay">
-        <form id="join-form">
+      <div id="overlay" class="overlay">
+        <section class="panel">
           <h1>Nuggets</h1>
-          <input id="name-input" type="text" placeholder="Dein Name" maxlength="16" autofocus />
-          <button id="join-button" type="submit">Beitreten</button>
-          <div id="status"></div>
-        </form>
+          <form id="join-form">
+            <input id="name-input" type="text" placeholder="Dein Name" maxlength="16" autofocus />
+            <button id="join-button" type="submit">Beitreten</button>
+            <p id="status"></p>
+          </form>
+          <div id="lobby-view" class="stack" hidden>
+            <h2>Lobby</h2>
+            <div>
+              <strong>Spielerzahl</strong>
+              <div class="target-row">
+                <button class="target-button" type="button" data-target="1">1</button>
+                <button class="target-button" type="button" data-target="2">2</button>
+                <button class="target-button" type="button" data-target="3">3</button>
+                <button class="target-button" type="button" data-target="4">4</button>
+              </div>
+            </div>
+            <ul id="player-list"></ul>
+            <button id="ready-button" type="button">Bereit</button>
+            <p id="lobby-status"></p>
+          </div>
+          <p class="controls">Bewegen: WASD / Pfeile · Springen: W / ↑ / Leertaste · Feder: F / Enter</p>
+        </section>
+      </div>
+      <div id="end-overlay" class="overlay" hidden>
+        <section class="panel">
+          <h1 id="end-title">Runde beendet</h1>
+          <button id="return-button" type="button">Zurück zur Lobby</button>
+        </section>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

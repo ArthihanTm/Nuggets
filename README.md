@@ -8,7 +8,7 @@ Grundgerüst, gedacht als Startpunkt zum Weiterbauen in Cursor.
 | Bereich | Technologie | Warum |
 |---|---|---|
 | Game-Rendering (Client) | [Phaser 4](https://phaser.io/) | 2D-Engine mit Sprite-/Tilemap-Support, Standard für Browser-Jump'n'Runs |
-| Multiplayer-Networking | [Colyseus](https://colyseus.io/) (`@colyseus/core` + `@colyseus/ws-transport`) | Room-basiertes Realtime-Framework, genau für 2–4-Spieler-Räume gemacht |
+| Multiplayer-Networking | [Colyseus](https://colyseus.io/) (`@colyseus/core` + `@colyseus/ws-transport`) | Room-basiertes Realtime-Framework, genau für 1–4-Spieler-Räume gemacht |
 | Sprache | TypeScript (Client & Server) | geteilte Typsicherheit, weniger Netzwerk-Bugs |
 | Build-Tool (Client) | [Vite](https://vitejs.dev/) | schneller Dev-Server, einfacher Production-Build |
 | Server-Runtime | Node.js | |
