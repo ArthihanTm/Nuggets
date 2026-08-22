@@ -18,8 +18,7 @@
     "@colyseus/schema": "3.0.76",
     "@colyseus/ws-transport": "0.16.5",
     "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "nuggets": "file:.."
+    "express": "^4.19.2"
   },
   "overrides": {
     "@colyseus/core": "0.16.24"
