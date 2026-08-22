@@ -24,6 +24,7 @@ const TICK_RATE = 60; // server physics steps per second
 const GRAVITY = 1800; // px/s^2
 const MOVE_SPEED = 240; // px/s
 const JUMP_VELOCITY = -650; // px/s (negative = upward)
+const LEDGE_SNAP_TOLERANCE = 36;
 
 export class GameRoom extends Room<GameState> {
   maxClients = 4;
@@ -47,13 +48,17 @@ export class GameRoom extends Room<GameState> {
   }
 
   onJoin(client: Client, options: JoinOptions) {
-    const index = this.state.players.size;
+    const occupiedColors = new Set<number>();
+    this.state.players.forEach((player) => occupiedColors.add(player.color));
+    const availableSlot = PLAYER_COLORS.findIndex((color) => !occupiedColors.has(color));
+    const index = availableSlot >= 0 ? availableSlot : this.state.players.size;
     const spawn = SPAWN_POINTS[index % SPAWN_POINTS.length];
+    const requestedName = typeof options?.name === "string" ? options.name.trim() : "";
 
     const player = new Player();
     player.x = spawn.x;
     player.y = spawn.y;
-    player.name = (options?.name ?? "").slice(0, 16) || `Player ${index + 1}`;
+    player.name = requestedName.slice(0, 16) || `Player ${index + 1}`;
     player.color = PLAYER_COLORS[index % PLAYER_COLORS.length];
 
     this.state.players.set(client.sessionId, player);
@@ -108,7 +113,11 @@ export class GameRoom extends Room<GameState> {
         if (!withinX) continue;
 
         const platformTop = platform.y;
-        if (player.vy >= 0 && prevFeetY <= platformTop + 1 && nextY >= platformTop) {
+        if (
+          player.vy >= 0 &&
+          prevFeetY <= platformTop + LEDGE_SNAP_TOLERANCE &&
+          nextY >= platformTop
+        ) {
           nextY = platformTop;
           player.vy = 0;
           player.grounded = true;
@@ -120,11 +129,13 @@ export class GameRoom extends Room<GameState> {
 
       // --- fell off the world -> respawn ---
       if (player.y > WORLD_HEIGHT + 200) {
-        const spawn = SPAWN_POINTS[0];
+        const spawnIndex = Math.max(0, PLAYER_COLORS.indexOf(player.color));
+        const spawn = SPAWN_POINTS[spawnIndex % SPAWN_POINTS.length];
         player.x = spawn.x;
         player.y = spawn.y;
         player.vx = 0;
         player.vy = 0;
+        player.grounded = false;
       }
     });
   }
