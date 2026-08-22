@@ -40,7 +40,9 @@ function startGame() {
     width: WORLD_WIDTH,
     height: WORLD_HEIGHT,
     parent: "game-container",
-    backgroundColor: "#87ceeb",
+    backgroundColor: "#6ec0e8",
+    pixelArt: true,
+    roundPixels: true,
     scene: [GameScene],
   });
 }

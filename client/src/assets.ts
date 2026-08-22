@@ -1,25 +1,16 @@
-// Checks whether client/public/assets/player.png exists BEFORE Phaser's
-// loader tries to fetch it. Without this, Phaser logs a scary-looking
-// console error (though the game still works fine, see GameScene's
-// rectangle fallback) every time the file is missing — which it will be
-// until you add real pixel art. This keeps the console clean either way.
-export const SPRITE_PATH = "assets/player.png";
-
-let spriteAvailable = false;
+export const SPRITE_PATH = "/assets/player.png";
+export const PLAYER_DEFEAT_PATH = "/assets/player-defeat.png";
+export const RAVEN_PATH = "/assets/raven.png";
+export const RAVEN_DEFEAT_PATH = "/assets/raven-defeat.png";
+export const ANT_PATH = "/assets/ant.png";
+export const ANT_DEFEAT_PATH = "/assets/ant-defeat.png";
+export const BACKGROUND_PATH = "/assets/background.png";
+export const PLATFORM_PATH = "/assets/platforms.png";
+export const BOSS_SIDE_PATH = "/assets/boss-side.png";
+export const BOSS_FRONT_PATH = "/assets/boss-front.png";
+export const FEATHER_PATH = "/assets/feather.png";
+export const NUGGET_PATH = "/assets/nugget.png";
 
 export async function checkAssets(): Promise<void> {
-  try {
-    const res = await fetch(SPRITE_PATH, { method: "HEAD" });
-    // Vite's dev/preview server answers an unmatched path with its SPA
-    // fallback (index.html, status 200) instead of a real 404 — so "ok"
-    // alone doesn't mean the file exists. Checking for an image
-    // content-type filters that out.
-    spriteAvailable = res.ok && (res.headers.get("content-type")?.startsWith("image/") ?? false);
-  } catch {
-    spriteAvailable = false;
-  }
-}
-
-export function isSpriteAvailable(): boolean {
-  return spriteAvailable;
+  // Assets live in client/public/assets — Phaser loads them directly.
 }

@@ -15,9 +15,52 @@ export class Player extends Schema {
   @type("boolean") grounded = false;
   @type("number") facing = 1; // 1 = right, -1 = left
   @type("number") color = 0xffffff;
-  @type("number") coins = 0;
+  @type("number") lives = 3;
+  @type("boolean") alive = true;
+  @type("number") invulnRemaining = 0;
+  @type("number") featherCooldown = 0;
+  @type("number") spawnIndex = 0;
+}
+
+export class Enemy extends Schema {
+  @type("string") id = "";
+  @type("string") kind = "raven";
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") baseY = 0;
+  @type("number") vx = 0;
+  @type("number") facing = 1; // 1 = right, -1 = left
+  @type("boolean") alive = true;
+  @type("number") featherHits = 3;
+}
+
+/** Single end-boss — one instance per room, not a map. */
+export class Boss extends Schema {
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") facing = 1; // 1 = right, -1 = left
+  @type("boolean") waiting = false; // true while paused on a platform (frontal view)
+  @type("number") hp = 15;
+  @type("boolean") alive = true;
+}
+
+export class Feather extends Schema {
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") vx = 0;
+  @type("string") ownerId = "";
+}
+
+export class Nugget extends Schema {
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("boolean") active = true;
 }
 
 export class GameState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>();
+  @type({ map: Enemy }) enemies = new MapSchema<Enemy>();
+  @type(Boss) boss = new Boss();
+  @type({ map: Feather }) feathers = new MapSchema<Feather>();
+  @type({ map: Nugget }) nuggets = new MapSchema<Nugget>();
 }
