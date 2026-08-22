@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23ffca28%22/><text x=%2216%22 y=%2222%22 font-size=%2216%22 text-anchor=%22middle%22>🎮</text></svg>" />
+    <title>Nuggets</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #1a1a2e;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        color: #f0f0f0;
+      }
+      #app {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #game-container {
+        line-height: 0;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      }
+      #overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 10, 20, 0.85);
+        z-index: 10;
+      }
+      #join-form {
+        background: #24243e;
+        padding: 32px 40px;
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: 280px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+      }
+      #join-form h1 {
+        margin: 0 0 4px 0;
+        font-size: 22px;
+      }
+      #join-form input {
+        padding: 10px 12px;
+        border-radius: 6px;
+        border: 1px solid #444;
+        background: #14142a;
+        color: #fff;
+        font-size: 15px;
+      }
+      #join-form button {
+        padding: 10px 12px;
+        border-radius: 6px;
+        border: none;
+        background: #ffca28;
+        color: #1a1a2e;
+        font-weight: bold;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      #join-form button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #status {
+        min-height: 18px;
+        font-size: 13px;
+        color: #ffb4b4;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="game-container"></div>
+      <div id="overlay">
+        <form id="join-form">
+          <h1>Nuggets</h1>
+          <input id="name-input" type="text" placeholder="Dein Name" maxlength="16" autofocus />
+          <button id="join-button" type="submit">Beitreten</button>
+          <div id="status"></div>
+        </form>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "nuggets-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "predev": "tsc -p tsconfig.json",
+    "dev": "concurrently -k -n tsc,server \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"node --watch dist/index.js\"",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@colyseus/core": "0.16.24",
+    "@colyseus/schema": "3.0.76",
+    "@colyseus/ws-transport": "0.16.5",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "overrides": {
+    "@colyseus/core": "0.16.24"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "concurrently": "^10.0.5",
+    "typescript": "^5.9.3"
+  }
+}
